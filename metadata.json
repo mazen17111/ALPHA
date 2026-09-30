@@ -1,0 +1,6 @@
+{
+  "name": "ALPHA - منصة ألفا التعليمية",
+  "description": "منصة ألفا التعليمية الرائدة - الفيديوهات، الملفات، الاختبارات الذكية، البث المباشر ومجلدات الأسئلة المخصصة نحو المئوية.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

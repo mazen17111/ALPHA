@@ -1,0 +1,166 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "User profile and statistics in ALPHA educational platform",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "email": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "watchedVideoIds": { "type": "array" },
+        "completedTestsCount": { "type": "number" },
+        "totalScoreSum": { "type": "number" },
+        "averageScore": { "type": "number" }
+      },
+      "required": ["id", "name", "email"]
+    },
+    "Video": {
+      "title": "Video",
+      "description": "Educational video lesson in ALPHA",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "url": { "type": "string" },
+        "duration": { "type": "string" },
+        "linkedFileIds": { "type": "array" },
+        "linkedExamIds": { "type": "array" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "title", "url"]
+    },
+    "FileResource": {
+      "title": "FileResource",
+      "description": "Downloadable file, summary or worksheet",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "fileUrl": { "type": "string" },
+        "fileType": { "type": "string" },
+        "category": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "title", "fileUrl"]
+    },
+    "Exam": {
+      "title": "Exam",
+      "description": "Quiz or exam with questions and images",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "durationMinutes": { "type": "number" },
+        "questions": { "type": "array" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "title", "questions"]
+    },
+    "StudentFolder": {
+      "title": "StudentFolder",
+      "description": "Custom questions folder created by a student",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "questions": { "type": "array" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "userId", "name"]
+    },
+    "ExamSubmission": {
+      "title": "ExamSubmission",
+      "description": "Submitted exam record and score",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "userName": { "type": "string" },
+        "userEmail": { "type": "string" },
+        "examId": { "type": "string" },
+        "examTitle": { "type": "string" },
+        "score": { "type": "number" },
+        "totalQuestions": { "type": "number" },
+        "percentage": { "type": "number" },
+        "completedAt": { "type": "string" }
+      },
+      "required": ["id", "userId", "score", "totalQuestions"]
+    },
+    "CustomBlock": {
+      "title": "CustomBlock",
+      "description": "Admin created custom section rectangle",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "badge": { "type": "string" },
+        "icon": { "type": "string" },
+        "content": { "type": "string" },
+        "linkUrl": { "type": "string" },
+        "color": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "title"]
+    },
+    "LiveStream": {
+      "title": "LiveStream",
+      "description": "Active live stream configuration in ALPHA",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "isActive": { "type": "boolean" },
+        "title": { "type": "string" },
+        "streamUrl": { "type": "string" },
+        "description": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["isActive", "streamUrl"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "UserProfile",
+      "description": "User profiles and viewing stats"
+    },
+    "/videos/{videoId}": {
+      "schema": "Video",
+      "description": "Course videos with linked files/exams"
+    },
+    "/files/{fileId}": {
+      "schema": "FileResource",
+      "description": "Course PDFs and resources"
+    },
+    "/exams/{examId}": {
+      "schema": "Exam",
+      "description": "Course exams and test questions"
+    },
+    "/student_folders/{folderId}": {
+      "schema": "StudentFolder",
+      "description": "Personal question folders for each student"
+    },
+    "/exam_submissions/{submissionId}": {
+      "schema": "ExamSubmission",
+      "description": "History of student exam results"
+    },
+    "/custom_blocks/{blockId}": {
+      "schema": "CustomBlock",
+      "description": "Custom blocks added by the administrator"
+    },
+    "/live_stream/{streamDocId}": {
+      "schema": "LiveStream",
+      "description": "Live stream active configuration"
+    },
+    "/settings/{settingId}": {
+      "schema": "PlatformLock",
+      "description": "Global platform lock and maintenance controls"
+    }
+  }
+}
