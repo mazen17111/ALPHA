@@ -74,7 +74,13 @@ export const LandingPage: React.FC = () => {
       await loginWithGoogle();
     } catch (err: any) {
       console.warn('Google auth notice:', err);
-      setErrorMsg('إذا تم منع النافذة المنبثقة، يمكنك إنشاء حسابك فورياً بالبريد والاسم أعلاه دون قيود');
+      if (err.code === 'auth/popup-blocked') {
+        setErrorMsg('تم حظر النافذة المنبثقة من قِبل المتصفح. يمكنك تسجيل الدخول أو إنشاء حسابك فورياً بالبريد وكلمة المرور أدناه.');
+      } else if (err.code === 'auth/cancelled-popup-request' || err.code === 'auth/popup-closed-by-user') {
+        setErrorMsg('تم إغلاق نافذة تسجيل الدخول السريع.');
+      } else {
+        setErrorMsg('تعذر الدخول السريع عبر Google في هذا المتصفح. يمكنك إتمام الدخول فورياً بالبريد وكلمة المرور أدناه.');
+      }
     } finally {
       setLoading(false);
     }
@@ -326,7 +332,7 @@ export const LandingPage: React.FC = () => {
                     d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.33 0 3.26 2.64 1.25 6.58l4.03 3.15c.95-2.83 3.6-4.98 6.72-4.98z"
                   />
                 </svg>
-                <span>التسجيل السريع عبر Google</span>
+                <span>{authMode === 'login' ? 'الدخول السريع عبر Google' : 'التسجيل السريع عبر Google'}</span>
               </AnimatedButton>
 
               <div className="flex items-center gap-3 my-4">

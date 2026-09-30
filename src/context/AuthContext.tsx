@@ -88,10 +88,35 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const chosenName = (desiredName || user.displayName || user.email?.split('@')[0] || 'طالب ألفا').trim();
 
       if (!snap.exists()) {
+        // Also check if an account with this email already exists under a different doc ID
+        let existingDocByEmail: any = null;
+        if (user.email) {
+          const q = query(collection(db, 'users'), where('email', '==', user.email.trim().toLowerCase()));
+          const existingSnap = await getDocs(q);
+          if (!existingSnap.empty) {
+            existingDocByEmail = existingSnap.docs[0];
+          }
+        }
+
+        if (existingDocByEmail) {
+          const exData = existingDocByEmail.data() as UserProfile;
+          const merged: UserProfile = {
+            ...exData,
+            id: user.uid,
+            name: desiredName || exData.name || chosenName,
+            password: password || exData.password || '',
+            lastLoginAt: new Date().toISOString(),
+          };
+          await setDoc(userDocRef, merged);
+          setUserProfile(merged);
+          localStorage.setItem(LOCAL_PROFILE_KEY, JSON.stringify(merged));
+          return;
+        }
+
         const newProfile: UserProfile = {
           id: user.uid,
           name: chosenName,
-          email: user.email || '',
+          email: user.email ? user.email.trim().toLowerCase() : '',
           password: password || '',
           createdAt: new Date().toISOString(),
           lastLoginAt: new Date().toISOString(),
@@ -116,17 +141,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           return;
         }
         const updatedName = desiredName?.trim() || existingData.name || chosenName;
+        const resolvedPassword = password || existingData.password || '';
+
         const updatePayload: any = {
           lastLoginAt: new Date().toISOString(),
           name: updatedName,
-          email: user.email || existingData.email || '',
+          email: user.email ? user.email.trim().toLowerCase() : (existingData.email || ''),
         };
-        if (password) updatePayload.password = password;
+        if (resolvedPassword) {
+          updatePayload.password = resolvedPassword;
+        }
 
         await updateDoc(userDocRef, updatePayload);
-        const merged = {
+        const merged: UserProfile = {
           ...existingData,
           name: updatedName,
+          password: resolvedPassword,
           lastLoginAt: new Date().toISOString(),
         };
         setUserProfile(merged);
@@ -253,58 +283,84 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const cleanEmail = email.trim().toLowerCase();
     const cleanPass = pass.trim();
 
-    // 1. First try standard Firebase email authentication
-    try {
-      const result = await signInWithEmailAndPassword(auth, cleanEmail, cleanPass);
-      if (result.user) {
-        await syncUserToFirestore(result.user, undefined, cleanPass);
-        const sessionUser: AppUser = {
-          uid: result.user.uid,
-          email: result.user.email,
-          displayName: result.user.displayName,
-        };
-        localStorage.setItem(LOCAL_STUDENT_KEY, JSON.stringify(sessionUser));
-        setCurrentUser(sessionUser);
-        return;
-      }
-    } catch (fbAuthErr: any) {
-      console.warn('Firebase direct signIn note:', fbAuthErr);
+    if (!cleanEmail) {
+      throw new Error('يرجى إدخال البريد الإلكتروني');
+    }
+    if (!cleanPass) {
+      throw new Error('يرجى إدخال كلمة المرور');
     }
 
-    // 2. Seamlessly authenticate against Firestore users collection
+    // 1. Search for the student in Firestore users collection
     const q = query(collection(db, 'users'), where('email', '==', cleanEmail));
     const querySnap = await getDocs(q);
 
-    if (querySnap.empty) {
-      throw new Error('البريد الإلكتروني غير مسجل، يرجى إنشاء حساب جديد');
+    let matchedDoc: any = null;
+    let studentData: UserProfile | null = null;
+
+    if (!querySnap.empty) {
+      matchedDoc = querySnap.docs[0];
+      studentData = matchedDoc.data() as UserProfile;
+    } else {
+      // Fallback: check all users case-insensitively in case of casing mismatch
+      const allUsersSnap = await getDocs(collection(db, 'users'));
+      for (const d of allUsersSnap.docs) {
+        const dData = d.data() as UserProfile;
+        if (dData.email && dData.email.trim().toLowerCase() === cleanEmail) {
+          matchedDoc = d;
+          studentData = dData;
+          break;
+        }
+      }
     }
 
-    const docSnap = querySnap.docs[0];
-    const student = docSnap.data() as UserProfile;
+    if (!studentData || !matchedDoc) {
+      throw new Error('البريد الإلكتروني غير مسجل، يرجى التأكد من البريد أو إنشاء حساب جديد أولاً');
+    }
 
-    if (student.isBanned) {
+    if (studentData.isBanned) {
       setIsAccountBlocked(true);
       throw new Error('تم إيقاف هذا الحساب من قِبل إدارة المنصة');
     }
 
-    if (student.password && student.password !== cleanPass) {
-      throw new Error('كلمة المرور غير صحيحة، يرجى التأكد والمحاولة مرة أخرى');
+    // STRICT PASSWORD VERIFICATION:
+    // If student has a password, it MUST match the exact password created during registration!
+    if (studentData.password) {
+      if (studentData.password !== cleanPass) {
+        throw new Error('كلمة المرور غير صحيحة، يرجى كتابة نفس كلمة المرور التي تم إنشاؤها أثناء التسجيل');
+      }
+    } else {
+      // Legacy user without stored password: check Firebase Auth
+      try {
+        await signInWithEmailAndPassword(auth, cleanEmail, cleanPass);
+      } catch (fbAuthErr: any) {
+        if (fbAuthErr.code === 'auth/wrong-password' || fbAuthErr.code === 'auth/invalid-credential') {
+          throw new Error('كلمة المرور غير صحيحة، يرجى التأكد من كلمة المرور');
+        }
+      }
+      // Save password for future logins
+      await updateDoc(doc(db, 'users', matchedDoc.id), { password: cleanPass });
     }
 
+    // Also attempt Firebase Auth sign-in to sync session tokens if account exists in Auth
+    try {
+      await signInWithEmailAndPassword(auth, cleanEmail, cleanPass);
+    } catch (_) {}
+
     // Update last login timestamp in Firestore
-    await updateDoc(doc(db, 'users', docSnap.id), {
+    await updateDoc(doc(db, 'users', matchedDoc.id), {
       lastLoginAt: new Date().toISOString(),
     });
 
-    const studentUid = student.id || docSnap.id;
+    const studentUid = studentData.id || matchedDoc.id;
     const sessionUser: AppUser = {
       uid: studentUid,
-      email: student.email,
-      displayName: student.name,
+      email: studentData.email,
+      displayName: studentData.name,
     };
     const updatedProfile: UserProfile = {
-      ...student,
+      ...studentData,
       id: studentUid,
+      password: studentData.password || cleanPass,
       lastLoginAt: new Date().toISOString(),
     };
     localStorage.setItem(LOCAL_STUDENT_KEY, JSON.stringify(sessionUser));
@@ -319,12 +375,25 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const cleanEmail = email.trim().toLowerCase();
     const cleanPass = pass.trim();
 
+    if (!cleanName) throw new Error('يرجى كتابة اسم الطالب الكامل');
+    if (!cleanEmail) throw new Error('يرجى إدخال البريد الإلكتروني');
+    if (!cleanPass) throw new Error('يرجى إدخال كلمة المرور');
+    if (cleanPass.length < 4) throw new Error('يجب ألا تقل كلمة المرور عن 4 أحرف أو أرقام');
+
     // 1. Verify if email is already registered in Firestore
     try {
       const q = query(collection(db, 'users'), where('email', '==', cleanEmail));
       const existingSnap = await getDocs(q);
       if (!existingSnap.empty) {
-        throw new Error('هذا البريد مسجل مسبقاً، يمكنك تسجيل الدخول به مباشرة');
+        throw new Error('هذا البريد مسجل مسبقاً، يمكنك التبديل لتسجيل الدخول به مباشرة');
+      }
+
+      const allUsersSnap = await getDocs(collection(db, 'users'));
+      for (const d of allUsersSnap.docs) {
+        const uData = d.data() as UserProfile;
+        if (uData.email && uData.email.trim().toLowerCase() === cleanEmail) {
+          throw new Error('هذا البريد مسجل مسبقاً، يمكنك التبديل لتسجيل الدخول به مباشرة');
+        }
       }
     } catch (err: any) {
       if (err.message?.includes('مسجل مسبقاً')) {
@@ -332,25 +401,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     }
 
-    // 2. Try standard Firebase account creation
-    let firebaseUid: string | null = null;
-    try {
-      const result = await createUserWithEmailAndPassword(auth, cleanEmail, cleanPass);
-      if (result.user) {
-        firebaseUid = result.user.uid;
-        updateProfile(result.user, { displayName: cleanName }).catch(() => {});
-      }
-    } catch (fbErr: any) {
-      console.warn('Firebase direct account creation bypassed or not enabled, registering in platform store:', fbErr);
-    }
-
-    // 3. Register student reliably in Firestore users collection
-    const studentId = firebaseUid || `std_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    // 2. Register student reliably in Firestore users collection FIRST
+    const studentId = `std_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
     const newProfile: UserProfile = {
       id: studentId,
       name: cleanName,
       email: cleanEmail,
-      password: cleanPass,
+      password: cleanPass, // Stored with 100% certainty!
       createdAt: new Date().toISOString(),
       lastLoginAt: new Date().toISOString(),
       isBanned: false,
@@ -361,6 +418,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
 
     await setDoc(doc(db, 'users', studentId), newProfile);
+
+    // 3. Also try Firebase account creation in background
+    try {
+      const result = await createUserWithEmailAndPassword(auth, cleanEmail, cleanPass);
+      if (result.user) {
+        updateProfile(result.user, { displayName: cleanName }).catch(() => {});
+      }
+    } catch (fbErr: any) {
+      console.warn('Firebase direct account creation note:', fbErr);
+    }
 
     // 4. Set persistent session
     const sessionUser: AppUser = {
