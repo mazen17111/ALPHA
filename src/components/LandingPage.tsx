@@ -19,7 +19,7 @@ import {
 } from 'lucide-react';
 
 export const LandingPage: React.FC = () => {
-  const { loginWithGoogle, loginWithEmail, registerWithEmail } = useAuth();
+  const { loginWithEmail, registerWithEmail } = useAuth();
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -61,25 +61,6 @@ export const LandingPage: React.FC = () => {
         setErrorMsg('هذا البريد مسجل بالفعل، يمكنك التبديل إلى تسجيل الدخول');
       } else {
         setErrorMsg(err.message || 'تعذر إتمام العملية، يرجى التحقق من البيانات');
-      }
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleGoogleLogin = async () => {
-    setErrorMsg('');
-    setLoading(true);
-    try {
-      await loginWithGoogle();
-    } catch (err: any) {
-      console.warn('Google auth notice:', err);
-      if (err.code === 'auth/popup-blocked') {
-        setErrorMsg('تم حظر النافذة المنبثقة من قِبل المتصفح. يمكنك تسجيل الدخول أو إنشاء حسابك فورياً بالبريد وكلمة المرور أدناه.');
-      } else if (err.code === 'auth/cancelled-popup-request' || err.code === 'auth/popup-closed-by-user') {
-        setErrorMsg('تم إغلاق نافذة تسجيل الدخول السريع.');
-      } else {
-        setErrorMsg('تعذر الدخول السريع عبر Google في هذا المتصفح. يمكنك إتمام الدخول فورياً بالبريد وكلمة المرور أدناه.');
       }
     } finally {
       setLoading(false);
@@ -304,41 +285,6 @@ export const LandingPage: React.FC = () => {
                 >
                   إنشاء حساب جديد
                 </button>
-              </div>
-
-              {/* Quick Google Sign In */}
-              <AnimatedButton
-                type="button"
-                variant="outline"
-                className="w-full mb-5 py-3 border-amber-500/40 text-xs sm:text-sm font-bold flex items-center justify-center gap-2"
-                onClick={handleGoogleLogin}
-                disabled={loading}
-              >
-                <svg className="w-5 h-5" viewBox="0 0 24 24">
-                  <path
-                    fill="#4285F4"
-                    d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.66-5.17 3.66-9.17z"
-                  />
-                  <path
-                    fill="#34A853"
-                    d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.1-6.72-4.93H1.25v3.15C3.26 21.36 7.33 24 12 24z"
-                  />
-                  <path
-                    fill="#FBBC05"
-                    d="M5.28 14.27c-.25-.72-.38-1.49-.38-2.27s.13-1.55.38-2.27V6.58H1.25C.45 8.18 0 10.02 0 12s.45 3.82 1.25 5.42l4.03-3.15z"
-                  />
-                  <path
-                    fill="#EA4335"
-                    d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.33 0 3.26 2.64 1.25 6.58l4.03 3.15c.95-2.83 3.6-4.98 6.72-4.98z"
-                  />
-                </svg>
-                <span>{authMode === 'login' ? 'الدخول السريع عبر Google' : 'التسجيل السريع عبر Google'}</span>
-              </AnimatedButton>
-
-              <div className="flex items-center gap-3 my-4">
-                <div className="h-px bg-zinc-800 dark:bg-zinc-800 light:bg-zinc-200 flex-1" />
-                <span className="text-xs text-zinc-500 font-medium">أو بالبريد وكلمة المرور</span>
-                <div className="h-px bg-zinc-800 dark:bg-zinc-800 light:bg-zinc-200 flex-1" />
               </div>
 
               {errorMsg && (
