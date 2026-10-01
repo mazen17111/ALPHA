@@ -72,7 +72,9 @@ export const CustomBlockModal: React.FC<CustomBlockModalProps> = ({
 
   // Resolve linked + direct exams
   const linkedExamIds = Array.isArray(block.linkedExamIds) ? block.linkedExamIds : [];
-  const linkedExams = (allExams || []).filter((e) => e && e.id && linkedExamIds.includes(e.id));
+  const linkedExams = (allExams || []).filter(
+    (e) => e && e.id && (linkedExamIds.includes(e.id) || e.customBlockId === block.id)
+  );
   const directExams = (Array.isArray(block.directExams) ? block.directExams : []).map((de) => ({
     id: de?.id || `de_${Math.random()}`,
     title: de?.title || 'اختبار',

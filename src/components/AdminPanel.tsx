@@ -38,8 +38,16 @@ import {
   Clock,
   Search,
   ShieldCheck,
-  AlertTriangle
+  AlertTriangle,
+  Pencil,
 } from 'lucide-react';
+import {
+  EditVideoModal,
+  EditFileModal,
+  EditExamModal,
+  EditBlockModal,
+} from './AdminEditModals';
+import { cleanFirestoreData } from '../utils/cleanFirestore';
 import {
   collection,
   addDoc,
@@ -134,6 +142,94 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     } catch (err) {
       console.error('Delete error:', err);
       showNotification('حدث خطأ أثناء تنفيذ الحذف');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  // Editing targets
+  const [editingVideo, setEditingVideo] = useState<VideoItem | null>(null);
+  const [editingFile, setEditingFile] = useState<FileResource | null>(null);
+  const [editingExam, setEditingExam] = useState<Exam | null>(null);
+  const [editingBlock, setEditingBlock] = useState<CustomBlock | null>(null);
+
+  const handleSaveVideoEdit = async (updated: Partial<VideoItem>) => {
+    if (!editingVideo) return;
+    setIsSaving(true);
+    try {
+      const dataToSave = cleanFirestoreData({
+        ...updated,
+        updatedAt: new Date().toISOString(),
+      });
+      await updateDoc(doc(db, 'videos', editingVideo.id), dataToSave);
+      showNotification(`تم تحديث بيانات الفيديو (${updated.title || editingVideo.title}) بنجاح ✓`);
+    } catch (err) {
+      handleFirestoreError(err, OperationType.UPDATE, 'videos');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleSaveFileEdit = async (updated: Partial<FileResource>) => {
+    if (!editingFile) return;
+    setIsSaving(true);
+    try {
+      const dataToSave = cleanFirestoreData({
+        ...updated,
+        updatedAt: new Date().toISOString(),
+      });
+      await updateDoc(doc(db, 'files', editingFile.id), dataToSave);
+      showNotification(`تم تحديث بيانات الملف (${updated.title || editingFile.title}) بنجاح ✓`);
+    } catch (err) {
+      handleFirestoreError(err, OperationType.UPDATE, 'files');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleSaveExamEdit = async (updated: Partial<Exam>, targetVideoId?: string) => {
+    if (!editingExam) return;
+    setIsSaving(true);
+    try {
+      const dataToSave = cleanFirestoreData({
+        ...updated,
+        updatedAt: new Date().toISOString(),
+      });
+      await updateDoc(doc(db, 'exams', editingExam.id), dataToSave);
+
+      // Synchronize video-to-exam link if specified
+      if (targetVideoId) {
+        const videoToUpdate = videos.find((v) => v.id === targetVideoId);
+        if (videoToUpdate) {
+          const currentLinkedExams = videoToUpdate.linkedExamIds || [];
+          if (!currentLinkedExams.includes(editingExam.id)) {
+            await updateDoc(doc(db, 'videos', targetVideoId), {
+              linkedExamIds: [...currentLinkedExams, editingExam.id],
+            });
+          }
+        }
+      }
+
+      showNotification(`تم تحديث بيانات الاختبار (${updated.title || editingExam.title}) وأسئلته بنجاح ✓`);
+    } catch (err) {
+      handleFirestoreError(err, OperationType.UPDATE, 'exams');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleSaveBlockEdit = async (updated: Partial<CustomBlock>) => {
+    if (!editingBlock) return;
+    setIsSaving(true);
+    try {
+      const dataToSave = cleanFirestoreData({
+        ...updated,
+        updatedAt: new Date().toISOString(),
+      });
+      await updateDoc(doc(db, 'custom_blocks', editingBlock.id), dataToSave);
+      showNotification(`تم تحديث بيانات الملحق (${updated.title || editingBlock.title}) بنجاح ✓`);
+    } catch (err) {
+      handleFirestoreError(err, OperationType.UPDATE, 'custom_blocks');
     } finally {
       setIsSaving(false);
     }
@@ -385,25 +481,34 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
   const handleAddExam = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!examTitle.trim()) return;
+    if (!examTitle.trim()) {
+      showNotification('يرجى كتابة عنوان الاختبار');
+      return;
+    }
 
     if (examCreationType === 'external') {
       if (!externalExamUrl.trim()) {
-        alert('يرجى وضع رابط الاختبار الخارجي (مثل Google Form أو رابط الامتحان)');
+        showNotification('يرجى وضع رابط الاختبار الخارجي (مثل Google Form أو رابط الامتحان)');
         return;
       }
     } else {
-      const validQuestions = examQuestions.filter((q) => q.text.trim().length > 0);
+      const validQuestions = examQuestions.filter(
+        (q) => q.text.trim().length > 0 || (q.imageUrl && q.imageUrl.trim().length > 0)
+      );
       if (validQuestions.length === 0) {
-        alert('يرجى كتابة سؤال واحد على الأقل في اختبار المنصة');
+        showNotification('يرجى إضافة سؤال واحد على الأقل (يمكنك كتابة نص أو الاكتفاء برفع صورة)');
         return;
       }
     }
 
     setIsSaving(true);
     try {
-      const validQuestions = examQuestions.filter((q) => q.text.trim().length > 0);
-      const newExamData: any = {
+      const validQuestions = examQuestions.filter(
+        (q) => q.text.trim().length > 0 || (q.imageUrl && q.imageUrl.trim().length > 0)
+      );
+      const defaultLetters = ['أ', 'ب', 'ج', 'د'];
+
+      const newExamData: any = cleanFirestoreData({
         title: examTitle.trim(),
         description: examDesc.trim() || '',
         durationMinutes: Number(examDuration) || 20,
@@ -411,16 +516,18 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         examType: examCreationType,
         createdAt: new Date().toISOString(),
         questions: examCreationType === 'platform'
-          ? validQuestions.map((q) => ({
-              id: q.id || `q_${Date.now()}`,
-              text: q.text.trim(),
+          ? validQuestions.map((q, idx) => ({
+              id: q.id || `q_${Date.now()}_${idx}`,
+              text: q.text.trim() || `السؤال ${idx + 1}`,
               imageUrl: q.imageUrl || '',
-              options: q.options.map((opt, i) => opt.trim() || `الخيار ${i + 1}`),
+              options: (q.options || ['', '', '', '']).map(
+                (opt, i) => opt.trim() || defaultLetters[i] || `الخيار ${i + 1}`
+              ),
               correctOptionIndex: q.correctOptionIndex || 0,
               explanation: q.explanation || '',
             }))
           : [],
-      };
+      });
 
       if (examCreationType === 'external' && externalExamUrl.trim()) {
         newExamData.externalExamUrl = externalExamUrl.trim();
@@ -483,17 +590,24 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [directExamUrl, setDirectExamUrl] = useState('');
 
   const handleAddDirectVideo = () => {
-    if (!directVideoTitle.trim() || !directVideoUrl.trim()) return;
+    if (!directVideoTitle.trim() || !directVideoUrl.trim()) {
+      showNotification('يرجى إدخال عنوان الفيديو ورابطه أولاً');
+      return;
+    }
     setBlockDirectVideos((prev) => [
       ...prev,
       { id: `dv_${Date.now()}`, title: directVideoTitle.trim(), url: directVideoUrl.trim() },
     ]);
     setDirectVideoTitle('');
     setDirectVideoUrl('');
+    showNotification('تمت إضافة الفيديو للملحق بنجاح ✓');
   };
 
   const handleAddDirectFile = () => {
-    if (!directFileTitle.trim() || !directFileUrl.trim()) return;
+    if (!directFileTitle.trim() || !directFileUrl.trim()) {
+      showNotification('يرجى إدخال اسم الملف ورابطه أولاً');
+      return;
+    }
     setBlockDirectFiles((prev) => [
       ...prev,
       {
@@ -505,21 +619,29 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     ]);
     setDirectFileTitle('');
     setDirectFileUrl('');
+    showNotification('تمت إضافة الملف للملحق بنجاح ✓');
   };
 
   const handleAddDirectExam = () => {
-    if (!directExamTitle.trim() || !directExamUrl.trim()) return;
+    if (!directExamTitle.trim() || !directExamUrl.trim()) {
+      showNotification('يرجى إدخال عنوان الاختبار ورابطه أولاً');
+      return;
+    }
     setBlockDirectExams((prev) => [
       ...prev,
       { id: `de_${Date.now()}`, title: directExamTitle.trim(), url: directExamUrl.trim() },
     ]);
     setDirectExamTitle('');
     setDirectExamUrl('');
+    showNotification('تمت إضافة الاختبار للملحق بنجاح ✓');
   };
 
   const handleAddCustomBlock = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!blockTitle.trim()) return;
+    if (!blockTitle.trim()) {
+      showNotification('يرجى كتابة اسم الملحق أولاً');
+      return;
+    }
 
     setIsSaving(true);
     try {
@@ -539,7 +661,15 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         newBlock.linkUrl = blockLink.trim();
       }
 
-      await addDoc(collection(db, 'custom_blocks'), newBlock);
+      const docRef = await addDoc(collection(db, 'custom_blocks'), newBlock);
+
+      // Assign all selected platform exams exclusively to this block
+      for (const examId of blockSelectedExams) {
+        await updateDoc(doc(db, 'exams', examId), {
+          customBlockId: docRef.id,
+        });
+      }
+
       setBlockTitle('');
       setBlockDesc('');
       setBlockBadge('ملحق جديد');
@@ -638,7 +768,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         {[
           { id: 'videos', label: 'الفيديوهات', icon: <Video className="w-4 h-4" />, count: videos.length },
           { id: 'files', label: 'الملفات والمذكرات', icon: <FileText className="w-4 h-4" />, count: files.length },
-          { id: 'exams', label: 'الاختبارات والأسئلة', icon: <HelpCircle className="w-4 h-4" />, count: exams.length },
+          { id: 'exams', label: 'الاختبارات والأسئلة', icon: <HelpCircle className="w-4 h-4" />, count: exams.filter((e) => !e.customBlockId).length },
           { id: 'blocks', label: 'الملحقات', icon: <Layers className="w-4 h-4" />, count: customBlocks.length },
           { id: 'live', label: 'البث المباشر', icon: <Tv className="w-4 h-4" />, active: liveStream?.isActive },
           { id: 'students', label: 'الطلاب والتحكم بالحسابات', icon: <Users className="w-4 h-4" />, count: students.length },
@@ -894,19 +1024,28 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                       </div>
                     </div>
 
-                    <button
-                      onClick={() =>
-                        setDeleteTarget({
-                          collectionName: 'videos',
-                          id: vid.id,
-                          title: vid.title,
-                        })
-                      }
-                      title="حذف الفيديو نهائياً"
-                      className="p-2 rounded-xl text-zinc-500 hover:text-red-400 hover:bg-red-500/10 transition-colors cursor-pointer"
-                    >
-                      <Trash2 className="w-5 h-5" />
-                    </button>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <button
+                        onClick={() => setEditingVideo(vid)}
+                        title="تعديل بيانات الفيديو"
+                        className="p-2 rounded-xl text-zinc-400 hover:text-amber-400 hover:bg-amber-500/10 transition-colors cursor-pointer"
+                      >
+                        <Pencil className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={() =>
+                          setDeleteTarget({
+                            collectionName: 'videos',
+                            id: vid.id,
+                            title: vid.title,
+                          })
+                        }
+                        title="حذف الفيديو نهائياً"
+                        className="p-2 rounded-xl text-zinc-500 hover:text-red-400 hover:bg-red-500/10 transition-colors cursor-pointer"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -1087,15 +1226,23 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-1.5">
                       <a
                         href={file.fileUrl}
                         target="_blank"
                         rel="noreferrer"
                         className="p-2 rounded-xl text-zinc-400 hover:text-amber-400 hover:bg-amber-500/10 cursor-pointer"
+                        title="فتح الملف"
                       >
                         <ExternalLink className="w-4 h-4" />
                       </a>
+                      <button
+                        onClick={() => setEditingFile(file)}
+                        title="تعديل بيانات الملف"
+                        className="p-2 rounded-xl text-zinc-400 hover:text-amber-400 hover:bg-amber-500/10 transition-colors cursor-pointer"
+                      >
+                        <Pencil className="w-4 h-4" />
+                      </button>
                       <button
                         onClick={() =>
                           setDeleteTarget({
@@ -1388,9 +1535,16 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
           {/* Existing Exams list */}
           <div className="space-y-4">
-            <h3 className="text-xl font-black text-amber-400">
-              الاختبارات المنشورة ({exams.length})
-            </h3>
+            <div className="flex items-center justify-between">
+              <h3 className="text-xl font-black text-amber-400">
+                الاختبارات العامة في قسم الاختبارات ({exams.filter((e) => !e.customBlockId).length})
+              </h3>
+              {exams.some((e) => e.customBlockId) && (
+                <span className="text-xs text-amber-500 font-bold">
+                  ({exams.filter((e) => e.customBlockId).length} اختبار داخل الملحقات المخصصة)
+                </span>
+              )}
+            </div>
 
             {exams.length === 0 ? (
               <p className="text-xs text-zinc-400">لا توجد اختبارات منشورة حتى الآن.</p>
@@ -1416,19 +1570,29 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                       </div>
                     </div>
 
-                    <button
-                      onClick={() =>
-                        setDeleteTarget({
-                          collectionName: 'exams',
-                          id: ex.id,
-                          title: ex.title,
-                        })
-                      }
-                      title="حذف الاختبار نهائياً"
-                      className="p-2 rounded-xl text-zinc-500 hover:text-red-400 hover:bg-red-500/10 cursor-pointer"
-                    >
-                      <Trash2 className="w-5 h-5" />
-                    </button>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <button
+                        onClick={() => setEditingExam(ex)}
+                        title="تعديل الاختبار والأسئلة"
+                        className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl border border-amber-500/30 bg-amber-500/10 text-amber-400 hover:bg-amber-500/20 text-xs font-bold transition-colors cursor-pointer"
+                      >
+                        <Pencil className="w-3.5 h-3.5" />
+                        <span>تعديل</span>
+                      </button>
+                      <button
+                        onClick={() =>
+                          setDeleteTarget({
+                            collectionName: 'exams',
+                            id: ex.id,
+                            title: ex.title,
+                          })
+                        }
+                        title="حذف الاختبار نهائياً"
+                        className="p-2 rounded-xl text-zinc-500 hover:text-red-400 hover:bg-red-500/10 cursor-pointer"
+                      >
+                        <Trash2 className="w-5 h-5" />
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -1879,18 +2043,28 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                           <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400">
                             {b.badge || 'ملحق'}
                           </span>
-                          <button
-                            onClick={() =>
-                              setDeleteTarget({
-                                collectionName: 'custom_blocks',
-                                id: b.id,
-                                title: b.title,
-                              })
-                            }
-                            className="p-1 text-zinc-500 hover:text-red-400 cursor-pointer rounded-lg hover:bg-red-500/10 transition-colors"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
+                          <div className="flex items-center gap-1">
+                            <button
+                              onClick={() => setEditingBlock(b)}
+                              title="تعديل الملحق والمستطيل"
+                              className="p-1 text-zinc-400 hover:text-amber-400 cursor-pointer rounded-lg hover:bg-amber-500/10 transition-colors"
+                            >
+                              <Pencil className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={() =>
+                                setDeleteTarget({
+                                  collectionName: 'custom_blocks',
+                                  id: b.id,
+                                  title: b.title,
+                                })
+                              }
+                              title="حذف الملحق نهائياً"
+                              className="p-1 text-zinc-500 hover:text-red-400 cursor-pointer rounded-lg hover:bg-red-500/10 transition-colors"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
                         </div>
                         <h4 className="text-base font-black text-zinc-100 dark:text-zinc-100 light:text-zinc-900">
                           {b.title}
@@ -2703,6 +2877,60 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               </div>
             </motion.div>
           </div>
+        )}
+      </AnimatePresence>
+
+      {/* Edit Video Modal */}
+      <AnimatePresence>
+        {editingVideo && (
+          <EditVideoModal
+            isOpen={Boolean(editingVideo)}
+            video={editingVideo}
+            allFiles={files}
+            allExams={exams}
+            onClose={() => setEditingVideo(null)}
+            onSave={handleSaveVideoEdit}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* Edit File Modal */}
+      <AnimatePresence>
+        {editingFile && (
+          <EditFileModal
+            isOpen={Boolean(editingFile)}
+            file={editingFile}
+            onClose={() => setEditingFile(null)}
+            onSave={handleSaveFileEdit}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* Edit Exam Modal */}
+      <AnimatePresence>
+        {editingExam && (
+          <EditExamModal
+            isOpen={Boolean(editingExam)}
+            exam={editingExam}
+            allVideos={videos}
+            onClose={() => setEditingExam(null)}
+            onSave={handleSaveExamEdit}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* Edit Custom Block Modal */}
+      <AnimatePresence>
+        {editingBlock && (
+          <EditBlockModal
+            isOpen={Boolean(editingBlock)}
+            block={editingBlock}
+            allVideos={videos}
+            allFiles={files}
+            allExams={exams}
+            onClose={() => setEditingBlock(null)}
+            onSave={handleSaveBlockEdit}
+          />
         )}
       </AnimatePresence>
     </div>

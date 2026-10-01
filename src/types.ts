@@ -25,6 +25,7 @@ export interface VideoItem {
   thumbnailUrl?: string;
   linkedFileIds?: string[];
   linkedExamIds?: string[];
+  customBlockId?: string | null; // إذا كان مخصصاً لملحق معين
   createdAt: string;
 }
 
@@ -37,6 +38,7 @@ export interface FileResource {
   fileType: string;
   category?: string;
   size?: string;
+  customBlockId?: string | null; // إذا كان مخصصاً لملحق معين
   createdAt: string;
 }
 
@@ -58,6 +60,8 @@ export interface Exam {
   examType?: 'external' | 'platform';
   passingPercentage?: number; // نسبة النجاح
   externalExamUrl?: string; // رابط الاختبار الخارجي الكامل
+  linkedVideoId?: string | null; // ربط الاختبار بفيديو معين
+  customBlockId?: string | null; // إذا تم إسناده لملحق معين يختفي من قسم الاختبارات العام
   questions: Question[];
   category?: string;
   createdAt: string;

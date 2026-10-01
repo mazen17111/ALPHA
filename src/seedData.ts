@@ -11,12 +11,17 @@ import { VideoItem, FileResource, Exam } from './types';
 
 export async function checkAndSeedInitialData() {
   try {
+    if (sessionStorage.getItem('alpha_seeded') === 'true') {
+      return;
+    }
+
     const seedRef = doc(db, 'settings', 'seed_status');
     const seedSnap = await getDoc(seedRef);
 
     // If seed already happened once in this project, do not re-insert deleted items!
     // This strictly respects: "واي شيء احذفه من المنصة لا يعود ابدا"
     if (seedSnap.exists() && seedSnap.data()?.seeded === true) {
+      sessionStorage.setItem('alpha_seeded', 'true');
       return;
     }
 
@@ -25,6 +30,7 @@ export async function checkAndSeedInitialData() {
     if (!videosSnap.empty) {
       // Mark as seeded so we never overwrite user's deleted items
       await setDoc(seedRef, { seeded: true, timestamp: new Date().toISOString() });
+      sessionStorage.setItem('alpha_seeded', 'true');
       return;
     }
 

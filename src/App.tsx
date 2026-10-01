@@ -133,17 +133,7 @@ function MainAppContent() {
       (error) => console.warn('Live stream sync notice:', error)
     );
 
-    // 6. All Students for Admin Panel
-    const unsubStudents = onSnapshot(
-      collection(db, 'users'),
-      (snap) => {
-        const items = snap.docs.map((d) => ({ id: d.id, ...d.data() } as UserProfile));
-        setAllStudents(items);
-      },
-      (error) => console.warn('Users sync notice:', error)
-    );
-
-    // 7. Platform Access Lock Configuration (قفل المنصة)
+    // 6. Platform Access Lock Configuration (قفل المنصة)
     const unsubLock = onSnapshot(
       doc(db, 'settings', 'platform_lock'),
       (snap) => {
@@ -160,10 +150,26 @@ function MainAppContent() {
       unsubExams();
       unsubCustomBlocks();
       unsubLive();
-      unsubStudents();
       unsubLock();
     };
   }, []);
+
+  // Performance Optimization: Only load and listen to full students list when Admin Panel is open
+  useEffect(() => {
+    if (!isAdminOpen) return;
+    const unsubStudents = onSnapshot(
+      collection(db, 'users'),
+      (snap) => {
+        const items = snap.docs.map((d) => ({ id: d.id, ...d.data() } as UserProfile));
+        setAllStudents(items);
+      },
+      (error) => console.warn('Users sync notice:', error)
+    );
+
+    return () => {
+      unsubStudents();
+    };
+  }, [isAdminOpen]);
 
   // Listeners for Current User's Specific Folders & Submissions
   useEffect(() => {
@@ -457,7 +463,7 @@ function MainAppContent() {
                   activeBlock={activeView}
                   videosCount={videos.length}
                   filesCount={files.length}
-                  examsCount={exams.length}
+                  examsCount={exams.filter((e) => !e.customBlockId).length}
                   foldersCount={studentFolders.length}
                   customBlocks={customBlocks}
                   onOpenCustomBlock={(block) => {
@@ -501,7 +507,7 @@ function MainAppContent() {
             {/* Detail Section: Exams with Folder Bookmark */}
             {activeView === 'exams' && (
               <ExamsSection
-                exams={exams}
+                exams={exams.filter((e) => !e.customBlockId)}
                 studentFolders={studentFolders}
                 activeExamToTake={activeExam}
                 onClearActiveExam={() => setActiveExam(null)}

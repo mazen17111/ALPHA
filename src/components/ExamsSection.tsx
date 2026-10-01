@@ -652,7 +652,9 @@ export const ExamsSection: React.FC<ExamsSectionProps> = ({
     );
   }
 
-  // Exams List View
+  // Exams List View (Exams assigned to custom blocks only appear inside their block)
+  const visibleExams = exams.filter((e) => !e.customBlockId);
+
   return (
     <div className="space-y-6 text-right pb-24">
       {/* Header */}
@@ -671,13 +673,13 @@ export const ExamsSection: React.FC<ExamsSectionProps> = ({
         </AnimatedButton>
       </div>
 
-      {exams.length === 0 ? (
+      {visibleExams.length === 0 ? (
         <div className="p-12 text-center rounded-3xl border border-amber-500/20 bg-black/40">
-          <p className="text-zinc-400 text-sm">لا توجد اختبارات مضافة حالياً. سيقوم المعلم بنشرها قريباً.</p>
+          <p className="text-zinc-400 text-sm">لا توجد اختبارات عامة مضافة حالياً.</p>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-          {exams.map((exam, idx) => {
+          {visibleExams.map((exam, idx) => {
             const isExt = exam.examType === 'external' || !!exam.externalExamUrl;
 
             return (
