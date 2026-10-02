@@ -492,20 +492,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         return;
       }
     } else {
-      const validQuestions = examQuestions.filter(
-        (q) => q.text.trim().length > 0 || (q.imageUrl && q.imageUrl.trim().length > 0)
-      );
-      if (validQuestions.length === 0) {
-        showNotification('يرجى إضافة سؤال واحد على الأقل (يمكنك كتابة نص أو الاكتفاء برفع صورة)');
+      if (examQuestions.length === 0) {
+        showNotification('يرجى إضافة سؤال واحد على الأقل للاختبار');
         return;
       }
     }
 
     setIsSaving(true);
     try {
-      const validQuestions = examQuestions.filter(
-        (q) => q.text.trim().length > 0 || (q.imageUrl && q.imageUrl.trim().length > 0)
-      );
       const defaultLetters = ['أ', 'ب', 'ج', 'د'];
 
       const newExamData: any = cleanFirestoreData({
@@ -516,9 +510,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         examType: examCreationType,
         createdAt: new Date().toISOString(),
         questions: examCreationType === 'platform'
-          ? validQuestions.map((q, idx) => ({
+          ? examQuestions.map((q, idx) => ({
               id: q.id || `q_${Date.now()}_${idx}`,
-              text: q.text.trim() || `السؤال ${idx + 1}`,
+              text: q.text.trim() || (q.imageUrl ? '' : `السؤال ${idx + 1}`),
               imageUrl: q.imageUrl || '',
               options: (q.options || ['', '', '', '']).map(
                 (opt, i) => opt.trim() || defaultLetters[i] || `الخيار ${i + 1}`
@@ -1416,13 +1410,15 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                       </div>
 
                       <div>
-                        <label className="block text-xs font-bold text-zinc-300 mb-1">صيغة السؤال:</label>
+                        <div className="flex items-center justify-between mb-1">
+                          <label className="block text-xs font-bold text-zinc-300">صيغة السؤال (اختياري):</label>
+                          <span className="text-[10px] text-zinc-400">يمكنك تركه فارغاً إذا كان السؤال مكتوباً داخل الصورة</span>
+                        </div>
                         <input
                           type="text"
-                          required={examCreationType === 'platform'}
                           value={question.text}
                           onChange={(e) => handleQuestionChange(qIdx, 'text', e.target.value)}
-                          placeholder="اكتب منطوق السؤال هنا..."
+                          placeholder="اكتب منطوق السؤال هنا (أو اتركه فارغاً واكتفِ برفع صورة)..."
                           className="w-full px-3.5 py-2.5 rounded-xl border border-amber-500/30 bg-black/50 dark:bg-black/50 light:bg-white text-xs focus:outline-none focus:border-amber-400 text-zinc-100 dark:text-zinc-100 light:text-zinc-900"
                         />
                       </div>
@@ -1472,9 +1468,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
                       {/* 4 Choices */}
                       <div>
-                        <label className="block text-xs font-black text-amber-400 mb-2">
-                          الخيارات الأربعة (حدد الإجابة الصحيحة بالدائرة):
-                        </label>
+                        <div className="flex items-center justify-between mb-2">
+                          <label className="block text-xs font-black text-amber-400">
+                            الخيارات الأربعة (حدد الإجابة الصحيحة بالدائرة):
+                          </label>
+                          <span className="text-[10px] text-amber-400/90 font-bold">
+                            الكتابة اختيارية (تظهر تلقائياً كـ أ، ب، ج، د إذا تُركت فارغة)
+                          </span>
+                        </div>
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                           {question.options.map((opt, oIdx) => (
                             <div
@@ -1494,10 +1495,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                               />
                               <input
                                 type="text"
-                                required={examCreationType === 'platform'}
                                 value={opt}
                                 onChange={(e) => handleOptionChange(qIdx, oIdx, e.target.value)}
-                                placeholder={`الخيار (${String.fromCharCode(65 + oIdx)})`}
+                                placeholder={`الخيار (${['أ', 'ب', 'ج', 'د'][oIdx]}) - اختياري`}
                                 className="flex-1 bg-transparent text-xs text-zinc-100 dark:text-zinc-100 light:text-zinc-900 focus:outline-none"
                               />
                               {question.correctOptionIndex === oIdx && (

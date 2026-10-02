@@ -21,7 +21,7 @@ import {
   Lock,
   PenTool
 } from 'lucide-react';
-import { doc, updateDoc } from 'firebase/firestore';
+import { doc, updateDoc, collection, addDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { ExamWhiteboard } from './ExamWhiteboard';
 
@@ -40,7 +40,7 @@ export const ExamsSection: React.FC<ExamsSectionProps> = ({
   onClearActiveExam,
   onBack,
 }) => {
-  const { recordExamSubmission } = useAuth();
+  const { recordExamSubmission, currentUser } = useAuth();
   const [currentExam, setCurrentExam] = useState<Exam | null>(activeExamToTake || null);
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [selectedAnswers, setSelectedAnswers] = useState<Record<number, number>>({});
@@ -51,6 +51,9 @@ export const ExamsSection: React.FC<ExamsSectionProps> = ({
     percentage: number;
     passed: boolean;
   } | null>(null);
+
+  // Mistakes auto-transferred notification state
+  const [transferredMistakesNotice, setTransferredMistakesNotice] = useState('');
 
   // Folder save modal state
   const [saveModalQuestion, setSaveModalQuestion] = useState<Question | null>(null);
@@ -65,6 +68,7 @@ export const ExamsSection: React.FC<ExamsSectionProps> = ({
       setSelectedAnswers({});
       setIsSubmitted(false);
       setExamResult(null);
+      setTransferredMistakesNotice('');
     }
   }, [activeExamToTake]);
 
@@ -79,6 +83,7 @@ export const ExamsSection: React.FC<ExamsSectionProps> = ({
     setSelectedAnswers({});
     setIsSubmitted(false);
     setExamResult(null);
+    setTransferredMistakesNotice('');
   };
 
   const handleSelectOption = (questionIndex: number, optionIndex: number) => {
@@ -93,9 +98,22 @@ export const ExamsSection: React.FC<ExamsSectionProps> = ({
     if (!currentExam) return;
 
     let score = 0;
+    const wrongQuestions: Question[] = [];
+
     currentExam.questions.forEach((q, idx) => {
-      if (selectedAnswers[idx] === q.correctOptionIndex) {
+      const studentAns = selectedAnswers[idx];
+      if (studentAns === q.correctOptionIndex) {
         score++;
+      } else {
+        wrongQuestions.push({
+          id: `mistake_${Date.now()}_${idx}`,
+          text: q.text || `سؤال في ${currentExam.title}`,
+          imageUrl: q.imageUrl || '',
+          options: q.options || [],
+          correctOptionIndex: q.correctOptionIndex,
+          explanation: q.explanation || '',
+          notes: `سؤال أخطأت به في (${currentExam.title}) • إجابتك: ${q.options?.[studentAns] || 'لم تجب'} | الإجابة الصحيحة: ${q.options?.[q.correctOptionIndex] || ''}`,
+        });
       }
     });
 
@@ -107,6 +125,7 @@ export const ExamsSection: React.FC<ExamsSectionProps> = ({
     setExamResult({ score, total, percentage, passed });
     setIsSubmitted(true);
 
+    // 1. Record Submission in student history
     await recordExamSubmission(
       currentExam.id,
       currentExam.title,
@@ -114,6 +133,59 @@ export const ExamsSection: React.FC<ExamsSectionProps> = ({
       total,
       passed
     );
+
+    // 2. AUTOMATIC TRANSFER OF MISTAKES:
+    // If the student made any mistakes, automatically transfer them to "مجلد الأخطاء"
+    if (wrongQuestions.length > 0 && currentUser) {
+      try {
+        const mistakesFolder = studentFolders.find(
+          (f) => f.name === 'مجلد الأخطاء' || f.isPermanentMistakesFolder
+        );
+
+        if (mistakesFolder) {
+          const existing = mistakesFolder.questions || [];
+          // Avoid duplicate question text / image if student already made this exact mistake previously
+          const newMistakes = wrongQuestions.filter(
+            (wq) =>
+              !existing.some(
+                (eq) =>
+                  (eq.text && wq.text && eq.text.trim() === wq.text.trim()) ||
+                  (eq.imageUrl && wq.imageUrl && eq.imageUrl === wq.imageUrl)
+              )
+          );
+
+          if (newMistakes.length > 0) {
+            await updateDoc(doc(db, 'student_folders', mistakesFolder.id), {
+              questions: [...existing, ...newMistakes],
+            });
+            setTransferredMistakesNotice(
+              `تم تحويل (${newMistakes.length}) أسئلة أخطأت بها تلقائياً إلى «مجلد الأخطاء» لمراجعتها وإتقانها! ✓`
+            );
+          } else {
+            setTransferredMistakesNotice(
+              `جميع أخطاء هذا الاختبار مسجلة مسبقاً في «مجلد الأخطاء» وجاهزة للمراجعة! ✓`
+            );
+          }
+        } else {
+          // If mistakes folder wasn't ready yet, create it on the spot with these questions
+          await addDoc(collection(db, 'student_folders'), {
+            userId: currentUser.uid,
+            name: 'مجلد الأخطاء',
+            description: 'المجلد الدائم لحفظ الأسئلة التي أخطأت بها تلقائياً لمراجعتها والوصول للمئوية 100%',
+            isPermanentMistakesFolder: true,
+            questions: wrongQuestions,
+            createdAt: new Date().toISOString(),
+          });
+          setTransferredMistakesNotice(
+            `تم حفظ (${wrongQuestions.length}) أسئلة أخطأت بها تلقائياً في «مجلد الأخطاء» لمراجعتها وإتقانها! ✓`
+          );
+        }
+      } catch (err) {
+        console.error('Failed to auto-transfer mistakes to folder:', err);
+      }
+    } else {
+      setTransferredMistakesNotice('');
+    }
   };
 
   const handleReset = () => {
@@ -122,6 +194,7 @@ export const ExamsSection: React.FC<ExamsSectionProps> = ({
     setSelectedAnswers({});
     setIsSubmitted(false);
     setExamResult(null);
+    setTransferredMistakesNotice('');
     if (onClearActiveExam) onClearActiveExam();
   };
 
@@ -260,6 +333,20 @@ export const ExamsSection: React.FC<ExamsSectionProps> = ({
                 <div className="text-xs text-zinc-400 mt-1">النسبة المئوية</div>
               </div>
             </div>
+
+            {/* Automatic Mistakes Transferred Notification Banner */}
+            {transferredMistakesNotice && (
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                className="mb-6 p-4 rounded-2xl bg-amber-500/15 border-2 border-amber-500/40 text-amber-300 text-xs sm:text-sm font-bold flex items-center justify-between gap-3 shadow-xl"
+              >
+                <div className="flex items-center gap-2.5">
+                  <Sparkles className="w-5 h-5 text-amber-400 shrink-0" />
+                  <span>{transferredMistakesNotice}</span>
+                </div>
+              </motion.div>
+            )}
 
             {/* Questions Review list with Folder Bookmark */}
             <div className="space-y-5 text-right mt-6 border-t border-amber-500/20 pt-6">
@@ -437,10 +524,12 @@ export const ExamsSection: React.FC<ExamsSectionProps> = ({
                   </div>
                 )}
 
-                {/* Question Text */}
-                <h3 className="text-base sm:text-xl font-black text-zinc-100 dark:text-zinc-100 light:text-zinc-900 mb-5 leading-relaxed">
-                  {q.text}
-                </h3>
+                {/* Question Text (Optional) */}
+                {q.text && q.text.trim() && (
+                  <h3 className="text-base sm:text-xl font-black text-zinc-100 dark:text-zinc-100 light:text-zinc-900 mb-5 leading-relaxed">
+                    {q.text}
+                  </h3>
+                )}
 
                 {/* Choices (وتحتيه الاختيارات) */}
                 <div className="space-y-3 mb-6">

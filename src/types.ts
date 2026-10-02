@@ -13,6 +13,9 @@ export interface UserProfile {
   completedTestsCount: number;
   totalScoreSum: number;
   averageScore: number;
+  points?: number; // نقاط الطالب للوحة المتصدرين
+  avatarUrl?: string;
+  rankTitle?: string;
 }
 
 export interface VideoItem {
@@ -72,6 +75,7 @@ export interface StudentFolder {
   userId: string;
   name: string;
   description?: string;
+  isPermanentMistakesFolder?: boolean; // مجلد الأخطاء الدائم الذي لا يحذف أبداً
   questions: Question[];
   createdAt: string;
 }
@@ -134,3 +138,44 @@ export interface PlatformLockConfig {
   blacklistedStudentIds: string[]; // مقفول عليهم حتى والمنصة مفتوحة للجميع
   updatedAt: string;
 }
+
+export interface ChallengeParticipant {
+  userId: string;
+  name: string;
+  score: number;
+  currentQuestionIndex: number;
+  answers: Record<number, number>; // index of question -> option index
+  isFinished: boolean;
+  finishedAt?: string;
+}
+
+export interface FriendChallenge {
+  id: string;
+  code: string; // 5-digit/letter code
+  hostId: string;
+  hostName: string;
+  participantId?: string | null;
+  participantName?: string | null;
+  status: 'waiting' | 'in_progress' | 'completed';
+  examCount: number;
+  examTitles: string[];
+  questions: (Question & { sourceExamTitle: string; questionIndex: number })[];
+  hostState: ChallengeParticipant;
+  participantState?: ChallengeParticipant | null;
+  winnerId?: string | 'tie' | null;
+  winnerName?: string | null;
+  createdAt: string;
+  startedAt?: string;
+  completedAt?: string;
+}
+
+export interface LeaderboardUser {
+  id: string;
+  name: string;
+  email: string;
+  points: number;
+  completedTestsCount: number;
+  averageScore: number;
+  rank?: number;
+}
+

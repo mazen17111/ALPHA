@@ -17,7 +17,8 @@ import {
   CheckCircle,
   AlertCircle,
   Upload,
-  X
+  X,
+  Lock,
 } from 'lucide-react';
 import {
   collection,
@@ -122,6 +123,12 @@ export const FoldersSection: React.FC<FoldersSectionProps> = ({
 
     try {
       if (itemToDelete.type === 'folder') {
+        const target = folders.find((f) => f.id === itemToDelete.id);
+        if (target?.name === 'مجلد الأخطاء' || target?.isPermanentMistakesFolder) {
+          alert('مجلد الأخطاء هو مجلد دائم وتلقائي في حسابك ولا يمكن حذفه للحفاظ على بنك أخطائك');
+          setItemToDelete(null);
+          return;
+        }
         await deleteDoc(doc(db, 'student_folders', itemToDelete.id));
         if (selectedFolder?.id === itemToDelete.id) {
           setSelectedFolder(null);
@@ -197,6 +204,14 @@ export const FoldersSection: React.FC<FoldersSectionProps> = ({
 
     onTakeFolderExam(folderAsExam);
   };
+
+  const sortedFolders = [...folders].sort((a, b) => {
+    const isA = a.name === 'مجلد الأخطاء' || a.isPermanentMistakesFolder;
+    const isB = b.name === 'مجلد الأخطاء' || b.isPermanentMistakesFolder;
+    if (isA) return -1;
+    if (isB) return 1;
+    return 0;
+  });
 
   return (
     <div className="space-y-6 text-right pb-14">
@@ -421,50 +436,72 @@ export const FoldersSection: React.FC<FoldersSectionProps> = ({
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-              {folders.map((folder, idx) => (
-                <motion.div
-                  key={folder.id}
-                  initial={{ opacity: 0, y: 15 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: idx * 0.05 }}
-                  whileHover={{ scale: 1.02, y: -3 }}
-                  className="p-6 rounded-3xl border-2 border-amber-500/30 bg-black/75 dark:bg-black/75 light:bg-white/95 shadow-xl flex flex-col justify-between text-right"
-                >
-                  <div>
-                    <div className="flex items-center justify-between mb-4">
-                      <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/30">
-                        {folder.questions?.length || 0} أسئلة
-                      </span>
+              {sortedFolders.map((folder, idx) => {
+                const isMistakes = folder.name === 'مجلد الأخطاء' || folder.isPermanentMistakesFolder;
 
-                      {/* Delete folder button (حذف المجلد) */}
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setItemToDelete({
-                            type: 'folder',
-                            id: folder.id,
-                            title: `مجلد (${folder.name})`,
-                          });
-                        }}
-                        title="حذف المجلد نهائياً"
-                        className="p-1.5 rounded-lg text-zinc-500 hover:text-red-400 hover:bg-red-500/10 transition-colors cursor-pointer"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
+                return (
+                  <motion.div
+                    key={folder.id}
+                    initial={{ opacity: 0, y: 15 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: idx * 0.05 }}
+                    whileHover={{ scale: 1.02, y: -3 }}
+                    className={`p-6 rounded-3xl flex flex-col justify-between text-right transition-all ${
+                      isMistakes
+                        ? 'border-2 border-amber-500/60 bg-gradient-to-br from-amber-950/25 via-zinc-950 to-black shadow-2xl shadow-amber-500/10 ring-1 ring-amber-500/30'
+                        : 'border-2 border-amber-500/30 bg-black/75 dark:bg-black/75 light:bg-white/95 shadow-xl'
+                    }`}
+                  >
+                    <div>
+                      <div className="flex items-center justify-between mb-4">
+                        <div className="flex items-center gap-2">
+                          <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/30">
+                            {folder.questions?.length || 0} أسئلة
+                          </span>
+                          {isMistakes && (
+                            <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-red-500/20 text-red-400 border border-red-500/40 flex items-center gap-1">
+                              <Sparkles className="w-3 h-3 text-red-400" />
+                              <span>تجميع الأخطاء تلقائياً</span>
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Delete or Protected Lock indicator */}
+                        {isMistakes ? (
+                          <div className="flex items-center gap-1 text-[11px] text-amber-400 font-bold bg-amber-500/10 px-2 py-1 rounded-xl border border-amber-500/20" title="مجلد دائم لا يحذف">
+                            <Lock className="w-3.5 h-3.5 text-amber-400" />
+                            <span>دائم</span>
+                          </div>
+                        ) : (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setItemToDelete({
+                                type: 'folder',
+                                id: folder.id,
+                                title: `مجلد (${folder.name})`,
+                              });
+                            }}
+                            title="حذف المجلد نهائياً"
+                            className="p-1.5 rounded-lg text-zinc-500 hover:text-red-400 hover:bg-red-500/10 transition-colors cursor-pointer"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        )}
+                      </div>
+
+                      <h3 className="text-xl font-black text-zinc-100 dark:text-zinc-100 light:text-zinc-900 mb-2 flex items-center gap-2">
+                        <span>{folder.name}</span>
+                      </h3>
+
+                      {folder.description && (
+                        <p className="text-xs text-zinc-400 dark:text-zinc-400 light:text-zinc-600 line-clamp-2 mb-4 font-normal">
+                          {folder.description}
+                        </p>
+                      )}
                     </div>
 
-                    <h3 className="text-xl font-black text-zinc-100 dark:text-zinc-100 light:text-zinc-900 mb-2">
-                      {folder.name}
-                    </h3>
-
-                    {folder.description && (
-                      <p className="text-xs text-zinc-400 dark:text-zinc-400 light:text-zinc-600 line-clamp-2 mb-4 font-normal">
-                        {folder.description}
-                      </p>
-                    )}
-                  </div>
-
-                  <div className="pt-4 border-t border-amber-500/20 flex items-center justify-between gap-2">
+                    <div className="pt-4 border-t border-amber-500/20 flex items-center justify-between gap-2">
                     {/* Open folder */}
                     <AnimatedButton
                       variant="outline"
@@ -498,7 +535,8 @@ export const FoldersSection: React.FC<FoldersSectionProps> = ({
                     </AnimatedButton>
                   </div>
                 </motion.div>
-              ))}
+              );
+            })}
             </div>
           )}
         </div>

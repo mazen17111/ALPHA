@@ -6,6 +6,8 @@ import { LandingPage } from './components/LandingPage';
 import { LiveStreamBanner } from './components/LiveStreamBanner';
 import { DashboardBlocks } from './components/DashboardBlocks';
 import { MyStatsBlock } from './components/MyStatsBlock';
+import { LeaderboardBlock } from './components/LeaderboardBlock';
+import { ChallengeSection } from './components/ChallengeSection';
 import { VideosSection } from './components/VideosSection';
 import { FilesSection } from './components/FilesSection';
 import { ExamsSection } from './components/ExamsSection';
@@ -26,6 +28,7 @@ import {
   ExamSubmission,
   UserProfile,
   PlatformLockConfig,
+  Question,
 } from './types';
 import {
   collection,
@@ -33,11 +36,13 @@ import {
   query,
   where,
   doc,
+  addDoc,
+  updateDoc,
 } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from './firebase';
 import { checkAndSeedInitialData } from './seedData';
 import { motion } from 'motion/react';
-import { Sparkles, ShieldAlert, LogOut } from 'lucide-react';
+import { Sparkles, ShieldAlert, LogOut, Swords } from 'lucide-react';
 import { AnimatedButton } from './components/AnimatedButton';
 import alphaLogo from './assets/images/alpha_logo_1790678223903.jpg';
 
@@ -65,7 +70,7 @@ function MainAppContent() {
   });
 
   // Navigation and active view
-  const [activeView, setActiveView] = useState<'dashboard' | 'videos' | 'files' | 'exams' | 'folders' | 'customBlock'>('dashboard');
+  const [activeView, setActiveView] = useState<'dashboard' | 'videos' | 'files' | 'exams' | 'folders' | 'customBlock' | 'challenges'>('dashboard');
   const [activeExam, setActiveExam] = useState<Exam | null>(null);
   const [selectedCustomBlock, setSelectedCustomBlock] = useState<CustomBlock | null>(null);
 
@@ -186,7 +191,31 @@ function MainAppContent() {
     const unsubFolders = onSnapshot(
       qFolders,
       (snap) => {
-        const items = snap.docs.map((d) => ({ id: d.id, ...d.data() } as StudentFolder));
+        let items = snap.docs.map((d) => ({ id: d.id, ...d.data() } as StudentFolder));
+
+        // Check if student has the permanent "مجلد الأخطاء" folder; if not, create it automatically!
+        const hasMistakesFolder = items.some(
+          (f) => f.name === 'مجلد الأخطاء' || f.isPermanentMistakesFolder
+        );
+
+        if (!hasMistakesFolder && currentUser) {
+          addDoc(collection(db, 'student_folders'), {
+            userId: currentUser.uid,
+            name: 'مجلد الأخطاء',
+            description: 'المجلد الدائم لحفظ الأسئلة التي أخطأت بها تلقائياً لمراجعتها والوصول للمئوية 100%',
+            isPermanentMistakesFolder: true,
+            questions: [],
+            createdAt: new Date().toISOString(),
+          }).catch((err: any) => console.warn('Auto create mistakes folder notice:', err));
+        }
+
+        // Always sort "مجلد الأخطاء" to be at the top
+        items.sort((a, b) => {
+          if (a.name === 'مجلد الأخطاء' || a.isPermanentMistakesFolder) return -1;
+          if (b.name === 'مجلد الأخطاء' || b.isPermanentMistakesFolder) return 1;
+          return 0;
+        });
+
         setStudentFolders(items);
       },
       (error) => console.warn('Folders sync notice:', error)
@@ -413,6 +442,13 @@ function MainAppContent() {
           setActiveView('dashboard');
           window.scrollTo({ top: 0, left: 0, behavior: 'smooth' });
         }}
+        onOpenChallenge={() => {
+          setIsAdminOpen(false);
+          setActiveExam(null);
+          setSelectedCustomBlock(null);
+          setActiveView('challenges');
+          window.scrollTo({ top: 0, left: 0, behavior: 'smooth' });
+        }}
       />
 
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -438,20 +474,30 @@ function MainAppContent() {
             {/* Dashboard OR Specific Section */}
             {activeView === 'dashboard' && (
               <div>
-                {/* Greeting */}
-                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-6 text-right">
+                {/* Greeting & Action Button: زر التحدي أمام الأصدقاء */}
+                <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 mb-6 text-right">
                   <div>
                     <h1 className="text-2xl sm:text-3xl font-black text-zinc-100 dark:text-zinc-100 light:text-zinc-900">
                       أهلاً بك، {userProfile?.name || 'طالب ألفا'}!
                     </h1>
-                    <p className="text-xs sm:text-sm text-zinc-400 dark:text-zinc-400 light:text-zinc-600">
-                      اختر قسماً من الأقسام الأربعة لبدء رحلتك ومتابعة تقدمك نحو المئوية 100%
+                    <p className="text-xs sm:text-sm text-zinc-400 dark:text-zinc-400 light:text-zinc-600 mt-0.5">
+                      اختر قسماً لبدء رحلتك، أو ادخل التحدي أمام الأصدقاء لمنافسة حية ومباشرة نحو 100%
                     </p>
                   </div>
 
-                  <div className="px-4 py-1.5 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-400 font-bold text-xs flex items-center gap-1.5">
-                    <Sparkles className="w-3.5 h-3.5" />
-                    <span>أقسام الفا طريقك للمئوية</span>
+                  {/* Action Button: زر التحدي أمام الأصدقاء */}
+                  <div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActiveView('challenges');
+                        window.scrollTo({ top: 0, left: 0, behavior: 'smooth' });
+                      }}
+                      className="px-5 py-3 rounded-2xl border-2 border-amber-400 bg-gradient-to-r from-amber-500 via-yellow-400 to-amber-500 text-black font-black text-xs sm:text-sm flex items-center gap-2 hover:scale-105 active:scale-95 transition-all shadow-lg shadow-amber-500/25 cursor-pointer ring-2 ring-amber-400/40"
+                    >
+                      <Swords className="w-4 h-4 fill-black" />
+                      <span>التحدي أمام الأصدقاء ⚔️</span>
+                    </button>
                   </div>
                 </div>
 
@@ -473,12 +519,22 @@ function MainAppContent() {
                   }}
                 />
 
-                {/* المستطيل الكبير "إحصائياتي" */}
-                <MyStatsBlock
-                  userProfile={userProfile}
-                  recentSubmissions={recentSubmissions}
-                  totalVideosCount={videos.length}
-                />
+                {/* المستطيلين الطوال المنفصلين عن بعض (المستطيل الأول: إحصائياتي بخانتين، والمستطيل الثاني: ترتيب أول 15 طالب + ترتيبك هو) */}
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-stretch mb-12">
+                  {/* المستطيل الأول: إحصائياتي (خانة فيديوهات وخانة اختبارات) */}
+                  <div className="w-full">
+                    <MyStatsBlock
+                      userProfile={userProfile}
+                      recentSubmissions={recentSubmissions}
+                      totalVideosCount={videos.length}
+                    />
+                  </div>
+
+                  {/* المستطيل الثاني: ترتيب أول 15 طالب وعدد نقاطهم + كلمة ترتيبك هو */}
+                  <div className="w-full">
+                    <LeaderboardBlock currentUserProfile={userProfile} />
+                  </div>
+                </div>
               </div>
             )}
 
@@ -544,6 +600,26 @@ function MainAppContent() {
                 onBack={() => {
                   setSelectedCustomBlock(null);
                   setActiveView('dashboard');
+                }}
+              />
+            )}
+
+            {/* Detail Section: Challenges (منافسة وتحدي الأصدقاء) */}
+            {activeView === 'challenges' && (
+              <ChallengeSection
+                currentUserProfile={userProfile}
+                allExams={exams.filter((e) => !e.customBlockId)}
+                onBack={() => setActiveView('dashboard')}
+                onUpdatePoints={async (pts) => {
+                  if (!currentUser?.uid) return;
+                  try {
+                    const curPts = userProfile?.points || 0;
+                    await updateDoc(doc(db, 'users', currentUser.uid), {
+                      points: curPts + pts,
+                    });
+                  } catch (e) {
+                    console.warn('Challenge points update error:', e);
+                  }
                 }}
               />
             )}

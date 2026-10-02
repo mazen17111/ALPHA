@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 import { AnimatedButton } from './AnimatedButton';
-import { Sun, Moon, LogOut, User as UserIcon, Sparkles } from 'lucide-react';
+import { Sun, Moon, LogOut, User as UserIcon, Sparkles, Swords } from 'lucide-react';
 import { motion } from 'motion/react';
 import alphaLogo from '../assets/images/alpha_logo_1790678223903.jpg';
 
@@ -11,9 +11,15 @@ interface NavbarProps {
   activeTab?: string;
   setActiveTab?: (tab: string) => void;
   onLogoClick?: () => void;
+  onOpenChallenge?: () => void;
 }
 
-export const Navbar: React.FC<NavbarProps> = ({ activeTab, setActiveTab, onLogoClick }) => {
+export const Navbar: React.FC<NavbarProps> = ({
+  activeTab,
+  setActiveTab,
+  onLogoClick,
+  onOpenChallenge,
+}) => {
   const { userProfile, currentUser, logout } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const [logoLoadError, setLogoLoadError] = useState(false);
@@ -77,7 +83,7 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, setActiveTab, onLogoC
               <img
                 src={alphaLogo}
                 alt="شعار منصة ALPHA التعليمية"
-                className="w-full h-full object-cover"
+                className="w-full h-full object-contain p-0.5"
                 onError={() => setLogoLoadError(true)}
               />
             ) : (
@@ -102,7 +108,25 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, setActiveTab, onLogoC
         </div>
 
         {/* Right Actions */}
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 sm:gap-3">
+          {/* Challenge Button (التحدي أمام الأصدقاء) */}
+          {onOpenChallenge && (
+            <motion.button
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              onClick={onOpenChallenge}
+              title="منافسة وتحدي الأصدقاء"
+              className={`px-3 py-2 rounded-xl border font-bold text-xs flex items-center gap-1.5 transition-all cursor-pointer shadow-sm ${
+                activeTab === 'challenges'
+                  ? 'border-amber-400 bg-amber-500 text-black font-black ring-2 ring-amber-400/40 shadow-amber-500/30'
+                  : 'border-amber-500/50 bg-gradient-to-r from-amber-500/20 to-yellow-500/10 text-amber-300 hover:border-amber-400'
+              }`}
+            >
+              <Swords className="w-4 h-4 text-amber-400 animate-pulse" />
+              <span>التحدي أمام الأصدقاء</span>
+            </motion.button>
+          )}
+
           {/* Theme Toggle Button */}
           <motion.button
             whileHover={{ scale: 1.08 }}

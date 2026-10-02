@@ -1,7 +1,18 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { UserProfile, ExamSubmission } from '../types';
-import { motion } from 'motion/react';
-import { Video, CheckCircle2, TrendingUp, Target, Award, Sparkles, Clock } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
+import {
+  Video,
+  HelpCircle,
+  TrendingUp,
+  Award,
+  Sparkles,
+  CheckCircle2,
+  Clock,
+  Star,
+  Target,
+  ChevronLeft,
+} from 'lucide-react';
 
 interface MyStatsBlockProps {
   userProfile: UserProfile | null;
@@ -14,9 +25,17 @@ export const MyStatsBlock: React.FC<MyStatsBlockProps> = ({
   recentSubmissions,
   totalVideosCount,
 }) => {
+  // خانتين: 'videos' (خانة الفيديوهات) أو 'exams' (خانة الاختبارات)
+  const [activeTab, setActiveTab] = useState<'videos' | 'exams'>('videos');
+
   const watchedCount = userProfile?.watchedVideoIds?.length || 0;
   const completedTests = userProfile?.completedTestsCount || 0;
   const averageScore = userProfile?.averageScore || 0;
+
+  // Total points (reduced scale)
+  const myPoints = userProfile?.points ?? (
+    Math.round((userProfile?.totalScoreSum || 0) / 10) + (completedTests * 2)
+  );
 
   // Percentage of videos watched
   const videosRatio = totalVideosCount > 0 ? Math.min(100, Math.round((watchedCount / totalVideosCount) * 100)) : 0;
@@ -25,186 +44,248 @@ export const MyStatsBlock: React.FC<MyStatsBlockProps> = ({
     <motion.div
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
-      className="w-full rounded-3xl border-2 border-amber-500/40 bg-black/75 dark:bg-black/75 light:bg-white/95 p-6 sm:p-8 shadow-2xl relative overflow-hidden mb-12"
+      className="w-full h-full min-h-[560px] rounded-3xl border-2 border-amber-500/40 bg-black/80 dark:bg-black/80 light:bg-white/95 p-5 sm:p-7 shadow-2xl relative overflow-hidden flex flex-col justify-between text-right"
     >
-      {/* Golden glow decorative accents */}
-      <div className="absolute top-0 right-0 w-64 h-64 bg-amber-500/10 rounded-full blur-3xl pointer-events-none" />
-      <div className="absolute bottom-0 left-0 w-64 h-64 bg-yellow-500/5 rounded-full blur-3xl pointer-events-none" />
+      {/* Decorative Glow Background */}
+      <div className="absolute top-0 right-0 w-60 h-60 bg-amber-500/10 rounded-full blur-3xl pointer-events-none" />
+      <div className="absolute bottom-0 left-0 w-60 h-60 bg-yellow-500/5 rounded-full blur-3xl pointer-events-none" />
 
-      {/* Header */}
-      <div className="relative z-10 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-amber-500/20 pb-5 mb-6 text-right">
-        <div>
-          <div className="flex items-center gap-2 mb-1">
-            <Award className="w-6 h-6 text-amber-400" />
-            <h2 className="text-2xl sm:text-3xl font-black bg-gradient-to-r from-amber-400 via-yellow-200 to-amber-500 bg-clip-text text-transparent">
-              إحصائياتي
-            </h2>
-            <span className="text-xs px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/30 font-bold">
-              طريقي للمئوية 100%
-            </span>
+      <div>
+        {/* Header: إحصائياتي */}
+        <div className="flex items-center justify-between border-b border-amber-500/20 pb-4 mb-5">
+          <div className="flex items-center gap-2.5">
+            <div className="w-10 h-10 rounded-2xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-400">
+              <Award className="w-5 h-5" />
+            </div>
+            <div>
+              <h2 className="text-xl sm:text-2xl font-black bg-gradient-to-r from-amber-400 via-yellow-200 to-amber-500 bg-clip-text text-transparent">
+                إحصائياتي
+              </h2>
+              <p className="text-xs text-zinc-400">
+                متابعة دقيقة لمسيرتك التعليمية نحو المئوية 100%
+              </p>
+            </div>
           </div>
-          <p className="text-xs sm:text-sm text-zinc-400 dark:text-zinc-400 light:text-zinc-600">
-            متابعة دقيقة ومستمرة لنشاطك، تقدمك، ومعدل إنجازك في منصة ALPHA
-          </p>
-        </div>
 
-        <div className="flex items-center gap-2 bg-amber-500/10 border border-amber-500/30 px-4 py-2 rounded-2xl">
-          <Sparkles className="w-4 h-4 text-amber-400 animate-spin-slow" />
-          <span className="text-xs font-black text-amber-400">
-            طالب ألفا المتميز
+          <span className="text-[11px] px-3 py-1 rounded-full bg-amber-500/15 border border-amber-500/30 text-amber-400 font-bold">
+            طالب ألفا
           </span>
         </div>
-      </div>
 
-      {/* Divided Metrics Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-5 relative z-10">
-        
-        {/* Metric 1: Watched Videos */}
-        <div className="rounded-2xl p-5 border border-amber-500/30 bg-zinc-950/60 dark:bg-zinc-950/60 light:bg-zinc-50/80 text-right">
-          <div className="flex items-center justify-between mb-3">
-            <span className="text-xs font-bold text-amber-400">تأكيد المشاهدة</span>
-            <div className="w-10 h-10 rounded-xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-400">
-              <Video className="w-5 h-5" />
-            </div>
-          </div>
+        {/* الخانتين: خانة فيديوهات وخانة اختبارات (Requirement: الطالب يختار واحد ويشوف احصائياته) */}
+        <div className="grid grid-cols-2 gap-2 p-1.5 rounded-2xl bg-zinc-950/80 border border-zinc-800 mb-6">
+          {/* خانة الفيديوهات */}
+          <button
+            type="button"
+            onClick={() => setActiveTab('videos')}
+            className={`py-3 px-4 rounded-xl text-xs sm:text-sm font-black flex items-center justify-center gap-2 transition-all cursor-pointer ${
+              activeTab === 'videos'
+                ? 'bg-gradient-to-r from-amber-500 to-yellow-400 text-black shadow-lg shadow-amber-500/25 ring-2 ring-amber-400/40'
+                : 'text-zinc-400 hover:text-white hover:bg-zinc-900'
+            }`}
+          >
+            <Video className="w-4 h-4" />
+            <span>خانة الفيديوهات</span>
+          </button>
 
-          <div className="flex items-baseline gap-2 mb-2">
-            <span className="text-3xl sm:text-4xl font-black text-zinc-100 dark:text-zinc-100 light:text-zinc-900">
-              {watchedCount}
-            </span>
-            <span className="text-xs font-semibold text-zinc-400">
-              فيديو مؤكد
-            </span>
-          </div>
-
-          <p className="text-xs text-zinc-400 dark:text-zinc-400 light:text-zinc-600 mb-3">
-            عدد الفيديوهات التي ضغطت على «تم تأكيد المشاهدة» عليها
-          </p>
-
-          <div className="w-full bg-zinc-800 dark:bg-zinc-800 light:bg-zinc-200 h-2 rounded-full overflow-hidden">
-            <div
-              className="bg-gradient-to-r from-amber-500 to-yellow-400 h-full rounded-full transition-all duration-700"
-              style={{ width: `${videosRatio}%` }}
-            />
-          </div>
-          <div className="text-[11px] text-zinc-500 dark:text-zinc-500 light:text-zinc-600 mt-1 flex justify-between">
-            <span>نسبة الإنجاز</span>
-            <span className="font-bold text-amber-400">{videosRatio}%</span>
-          </div>
+          {/* خانة الاختبارات */}
+          <button
+            type="button"
+            onClick={() => setActiveTab('exams')}
+            className={`py-3 px-4 rounded-xl text-xs sm:text-sm font-black flex items-center justify-center gap-2 transition-all cursor-pointer ${
+              activeTab === 'exams'
+                ? 'bg-gradient-to-r from-amber-500 to-yellow-400 text-black shadow-lg shadow-amber-500/25 ring-2 ring-amber-400/40'
+                : 'text-zinc-400 hover:text-white hover:bg-zinc-900'
+            }`}
+          >
+            <HelpCircle className="w-4 h-4" />
+            <span>خانة الاختبارات</span>
+          </button>
         </div>
 
-        {/* Metric 2: Solved and Submitted Tests */}
-        <div className="rounded-2xl p-5 border border-amber-500/30 bg-zinc-950/60 dark:bg-zinc-950/60 light:bg-zinc-50/80 text-right">
-          <div className="flex items-center justify-between mb-3">
-            <span className="text-xs font-bold text-amber-400">الاختبارات المنجزة</span>
-            <div className="w-10 h-10 rounded-xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-400">
-              <CheckCircle2 className="w-5 h-5" />
-            </div>
-          </div>
-
-          <div className="flex items-baseline gap-2 mb-2">
-            <span className="text-3xl sm:text-4xl font-black text-zinc-100 dark:text-zinc-100 light:text-zinc-900">
-              {completedTests}
-            </span>
-            <span className="text-xs font-semibold text-zinc-400">
-              اختبار محلول ومسلّم
-            </span>
-          </div>
-
-          <p className="text-xs text-zinc-400 dark:text-zinc-400 light:text-zinc-600 mb-3">
-            إجمالي الاختبارات التي قمت بحلها داخل المنصة وتسليمها
-          </p>
-
-          <div className="w-full bg-zinc-800 dark:bg-zinc-800 light:bg-zinc-200 h-2 rounded-full overflow-hidden">
-            <div
-              className="bg-gradient-to-r from-yellow-500 to-amber-500 h-full rounded-full transition-all duration-700"
-              style={{ width: `${Math.min(100, completedTests * 10)}%` }}
-            />
-          </div>
-          <div className="text-[11px] text-zinc-500 dark:text-zinc-500 light:text-zinc-600 mt-1 flex justify-between">
-            <span>الاستمرارية</span>
-            <span className="font-bold text-amber-400">
-              {completedTests > 0 ? 'نشط ومستمر' : 'ابدأ أول اختبار'}
-            </span>
-          </div>
-        </div>
-
-        {/* Metric 3: Average Score */}
-        <div className="rounded-2xl p-5 border border-amber-500/30 bg-zinc-950/60 dark:bg-zinc-950/60 light:bg-zinc-50/80 text-right">
-          <div className="flex items-center justify-between mb-3">
-            <span className="text-xs font-bold text-amber-400">المعدل العام</span>
-            <div className="w-10 h-10 rounded-xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-400">
-              <TrendingUp className="w-5 h-5" />
-            </div>
-          </div>
-
-          <div className="flex items-baseline gap-2 mb-2">
-            <span className="text-3xl sm:text-4xl font-black text-amber-400">
-              {averageScore}%
-            </span>
-            <span className="text-xs font-semibold text-zinc-400">
-              متوسط درجاتك
-            </span>
-          </div>
-
-          <p className="text-xs text-zinc-400 dark:text-zinc-400 light:text-zinc-600 mb-3">
-            متوسطك في كل اختبار قمت بحله داخل المنصة
-          </p>
-
-          <div className="w-full bg-zinc-800 dark:bg-zinc-800 light:bg-zinc-200 h-2 rounded-full overflow-hidden">
-            <div
-              className="bg-gradient-to-r from-amber-400 via-yellow-400 to-emerald-400 h-full rounded-full transition-all duration-700"
-              style={{ width: `${averageScore}%` }}
-            />
-          </div>
-          <div className="text-[11px] text-zinc-500 dark:text-zinc-500 light:text-zinc-600 mt-1 flex justify-between">
-            <span>الهدف: 100% المئوية</span>
-            <span className="font-bold text-amber-400">متبقي {Math.max(0, 100 - averageScore)}%</span>
-          </div>
-        </div>
-      </div>
-
-      {/* Submissions Log (if student solved tests) */}
-      {recentSubmissions && recentSubmissions.length > 0 && (
-        <div className="mt-6 pt-5 border-t border-amber-500/20 text-right">
-          <h4 className="text-sm font-bold text-zinc-300 dark:text-zinc-300 light:text-zinc-700 mb-3 flex items-center gap-2">
-            <Clock className="w-4 h-4 text-amber-400" />
-            <span>سجل آخر الاختبارات المسلّمة ونتائجك:</span>
-          </h4>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-            {recentSubmissions.slice(0, 3).map((sub) => (
-              <div
-                key={sub.id}
-                className="p-3.5 rounded-xl border border-amber-500/20 bg-black/40 dark:bg-black/40 light:bg-zinc-100 flex items-center justify-between"
-              >
-                <div>
-                  <div className="text-xs font-bold text-zinc-200 dark:text-zinc-200 light:text-zinc-800">
-                    {sub.examTitle}
-                  </div>
-                  <div className="text-[10px] text-zinc-400">
-                    {new Date(sub.completedAt).toLocaleDateString('ar-SA')}
-                  </div>
+        {/* Tab Content */}
+        <AnimatePresence mode="wait">
+          {activeTab === 'videos' ? (
+            /* ========================================================================= */
+            /* 1. خانة الفيديوهات                                                        */
+            /* ========================================================================= */
+            <motion.div
+              key="videos-tab"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              className="space-y-4"
+            >
+              {/* Primary Video Stat Card */}
+              <div className="p-4 rounded-2xl border-2 border-amber-500/30 bg-gradient-to-br from-amber-500/15 via-zinc-950/80 to-black">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs font-bold text-amber-300 flex items-center gap-1.5">
+                    <Video className="w-4 h-4 text-amber-400" />
+                    <span>الفيديوهات المؤكدة المشاهدة</span>
+                  </span>
+                  <span className="text-[10px] font-bold text-amber-400 bg-amber-500/20 px-2 py-0.5 rounded-md">
+                    تأكيد المشاهدة
+                  </span>
                 </div>
 
-                <div className="text-right">
-                  <span
-                    className={`inline-block px-2.5 py-1 rounded-lg text-xs font-black ${
-                      sub.percentage >= 90
-                        ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
-                        : sub.percentage >= 70
-                        ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
-                        : 'bg-red-500/20 text-red-400 border border-red-500/30'
-                    }`}
-                  >
-                    {sub.score}/{sub.totalQuestions} ({sub.percentage}%)
+                <div className="flex items-baseline gap-2 mt-1">
+                  <span className="text-3xl sm:text-4xl font-black text-amber-400">
+                    {watchedCount}
+                  </span>
+                  <span className="text-xs font-semibold text-zinc-400">
+                    من أصل {totalVideosCount} فيديو في المنصة
+                  </span>
+                </div>
+
+                {/* Progress bar */}
+                <div className="w-full bg-zinc-800 h-2.5 rounded-full overflow-hidden mt-3">
+                  <div
+                    className="bg-gradient-to-r from-amber-500 via-yellow-400 to-amber-300 h-full rounded-full transition-all duration-700"
+                    style={{ width: `${videosRatio}%` }}
+                  />
+                </div>
+                <div className="flex justify-between items-center text-[11px] text-zinc-400 mt-1.5 font-bold">
+                  <span>نسبة الإنجاز في الشروحات:</span>
+                  <span className="text-amber-400">{videosRatio}%</span>
+                </div>
+              </div>
+
+              {/* Video Insights grid */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="p-3.5 rounded-2xl border border-zinc-800 bg-zinc-950/60">
+                  <span className="text-[11px] text-zinc-400 block mb-1">
+                    فيديوهات متبقية
+                  </span>
+                  <span className="text-xl font-black text-zinc-100">
+                    {Math.max(0, totalVideosCount - watchedCount)}
+                  </span>
+                  <span className="text-[10px] text-zinc-500 block mt-0.5">
+                    شاهدها لترفع معدلك
+                  </span>
+                </div>
+
+                <div className="p-3.5 rounded-2xl border border-zinc-800 bg-zinc-950/60">
+                  <span className="text-[11px] text-zinc-400 block mb-1">
+                    حالة المتابعة
+                  </span>
+                  <span className="text-sm font-black text-emerald-400 flex items-center gap-1">
+                    <CheckCircle2 className="w-4 h-4" />
+                    {videosRatio >= 80 ? 'متقدم ممتاز' : videosRatio >= 40 ? 'مستمر بنشاط' : 'في بداية المسار'}
+                  </span>
+                  <span className="text-[10px] text-zinc-500 block mt-0.5">
+                    تأكيد المشاهدة نشط
                   </span>
                 </div>
               </div>
-            ))}
-          </div>
-        </div>
-      )}
+
+              {/* Helpful Notice */}
+              <div className="p-3 rounded-2xl border border-amber-500/20 bg-amber-500/5 text-xs text-amber-300/90 leading-relaxed">
+                💡 <span className="font-bold">نصيحة المنصة:</span> عند مشاهدة أي شرح فيديو، اضغط على زر «تم تأكيد المشاهدة» أسفل الفيديو ليتم تسجيله تلقائياً في خانة إحصائياتك.
+              </div>
+            </motion.div>
+          ) : (
+            /* ========================================================================= */
+            /* 2. خانة الاختبارات                                                        */
+            /* ========================================================================= */
+            <motion.div
+              key="exams-tab"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              className="space-y-4"
+            >
+              {/* Primary Exam Stat Card */}
+              <div className="p-4 rounded-2xl border-2 border-amber-500/30 bg-gradient-to-br from-amber-500/15 via-zinc-950/80 to-black">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs font-bold text-amber-300 flex items-center gap-1.5">
+                    <TrendingUp className="w-4 h-4 text-amber-400" />
+                    <span>المعدل العام ونقاط الاختبارات</span>
+                  </span>
+                  <span className="text-[10px] font-bold text-amber-400 bg-amber-500/20 px-2 py-0.5 rounded-md flex items-center gap-1">
+                    <Star className="w-3 h-3 fill-amber-400" />
+                    <span>{myPoints.toLocaleString()} نقطة</span>
+                  </span>
+                </div>
+
+                <div className="flex items-baseline gap-2 mt-1">
+                  <span className="text-3xl sm:text-4xl font-black text-amber-400">
+                    {averageScore}%
+                  </span>
+                  <span className="text-xs font-semibold text-zinc-400">
+                    متوسط درجاتك في جميع الاختبارات
+                  </span>
+                </div>
+
+                {/* Progress bar */}
+                <div className="w-full bg-zinc-800 h-2.5 rounded-full overflow-hidden mt-3">
+                  <div
+                    className="bg-gradient-to-r from-amber-400 via-yellow-400 to-emerald-400 h-full rounded-full transition-all duration-700"
+                    style={{ width: `${averageScore}%` }}
+                  />
+                </div>
+                <div className="flex justify-between items-center text-[11px] text-zinc-400 mt-1.5 font-bold">
+                  <span>الهدف: المئوية 100%</span>
+                  <span className="text-amber-400">{completedTests} اختبار محلول ومسلّم</span>
+                </div>
+              </div>
+
+              {/* Exam Submissions Insights */}
+              <div className="space-y-2">
+                <span className="text-xs font-bold text-zinc-300 block">
+                  آخر الاختبارات التي قمت بحلها:
+                </span>
+
+                {recentSubmissions && recentSubmissions.length > 0 ? (
+                  <div className="space-y-2 max-h-44 overflow-y-auto pr-1 custom-scrollbar">
+                    {recentSubmissions.slice(0, 4).map((sub, idx) => (
+                      <div
+                        key={sub.id || idx}
+                        className="p-2.5 rounded-xl border border-zinc-800 bg-zinc-950/70 flex items-center justify-between text-xs"
+                      >
+                        <div>
+                          <span className="font-bold text-zinc-200 block truncate max-w-[180px]">
+                            {sub.examTitle}
+                          </span>
+                          <span className="text-[10px] text-zinc-500">
+                            {sub.score} من {sub.totalQuestions} سؤال
+                          </span>
+                        </div>
+
+                        <div className="text-left">
+                          <span
+                            className={`font-black text-xs px-2 py-0.5 rounded-md ${
+                              sub.passed
+                                ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                                : 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
+                            }`}
+                          >
+                            {sub.percentage}%
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="p-4 rounded-xl border border-zinc-800 bg-zinc-950/50 text-center text-xs text-zinc-400">
+                    لم تقم بحل اختبارات بعد. اختر أي اختبار من قسم الاختبارات لبدء تسجيل درجاتك ونقاطك!
+                  </div>
+                )}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+
+      {/* Motivational Footer */}
+      <div className="mt-5 pt-3.5 border-t border-amber-500/15 flex items-center justify-between text-xs text-zinc-400">
+        <span className="flex items-center gap-1.5 text-[11px]">
+          <Sparkles className="w-3.5 h-3.5 text-amber-400 animate-spin-slow" />
+          <span>كل اختبار تكمله يمنحك نقاطاً لرفع ترتيبك في الصدارة</span>
+        </span>
+        <span className="font-black text-amber-400 text-xs">
+          {myPoints.toLocaleString()} نقطة
+        </span>
+      </div>
     </motion.div>
   );
 };

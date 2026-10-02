@@ -618,25 +618,15 @@ export const EditExamModal: React.FC<EditExamModalProps> = ({
       return;
     }
 
-    // REQUIREMENT: "خلي مش ضروري وانا بعمل الاختبار اني احط سؤال لو رافع صورة ومش ضروري اكتب حاجة في الاختيارات"
-    // Question is valid if it has text OR has an uploaded image!
     if (examType === 'platform') {
-      const validQuestions = questions.filter(
-        (q) => q.text.trim().length > 0 || (q.imageUrl && q.imageUrl.trim().length > 0)
-      );
-
-      if (validQuestions.length === 0) {
-        setErrorMsg('يرجى إضافة سؤال واحد على الأقل (يمكنك كتابة نص أو رفع صورة)');
+      if (questions.length === 0) {
+        setErrorMsg('يرجى إضافة سؤال واحد على الأقل للاختبار');
         return;
       }
     }
 
     setLoading(true);
     try {
-      const validQuestions = questions.filter(
-        (q) => q.text.trim().length > 0 || (q.imageUrl && q.imageUrl.trim().length > 0)
-      );
-
       const defaultLetterChoices = ['أ', 'ب', 'ج', 'د'];
 
       const cleanedExam: Partial<Exam> = cleanFirestoreData({
@@ -649,9 +639,9 @@ export const EditExamModal: React.FC<EditExamModalProps> = ({
         externalExamUrl: examType === 'external' ? externalExamUrl.trim() : '',
         questions:
           examType === 'platform'
-            ? validQuestions.map((q, idx) => ({
+            ? questions.map((q, idx) => ({
                 id: q.id || `q_${Date.now()}_${idx}`,
-                text: q.text.trim() || `السؤال ${idx + 1}`,
+                text: q.text.trim() || (q.imageUrl ? '' : `السؤال ${idx + 1}`),
                 imageUrl: q.imageUrl || '',
                 // If user didn't write anything in options, default to أ, ب, ج, د so student can choose the letter!
                 options: (q.options || ['', '', '', '']).map(

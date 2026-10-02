@@ -480,6 +480,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return true;
     }
 
+    // Optimistically update local state immediately so stats reflect it in 0ms
+    const updatedWatched = Array.from(new Set([...(userProfile?.watchedVideoIds || []), videoId]));
+    setUserProfile((prev) => {
+      if (!prev) return prev;
+      const updated = {
+        ...prev,
+        watchedVideoIds: updatedWatched,
+      };
+      try {
+        localStorage.setItem(LOCAL_PROFILE_KEY, JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
+
     try {
       const userDocRef = doc(db, 'users', currentUser.uid);
       await updateDoc(userDocRef, {
@@ -526,11 +540,33 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const newSum = currentSum + percentage;
       const newAverage = Math.round(newSum / newCount);
 
+      // Reduced points calculation per test: realistic balanced scale (e.g. 5 to 15 points per test)
+      const pointsEarned = Math.max(1, Math.round(percentage / 10)) + (passed ? 2 : 0) + (percentage === 100 ? 3 : 0);
+      const currentPoints = userProfile?.points ?? (Math.round(currentSum / 10) + (currentCount * 2));
+      const newPoints = currentPoints + pointsEarned;
+
+      // Optimistically update local userProfile immediately
+      setUserProfile((prev) => {
+        if (!prev) return prev;
+        const updated = {
+          ...prev,
+          completedTestsCount: newCount,
+          totalScoreSum: newSum,
+          averageScore: newAverage,
+          points: newPoints,
+        };
+        try {
+          localStorage.setItem(LOCAL_PROFILE_KEY, JSON.stringify(updated));
+        } catch {}
+        return updated;
+      });
+
       const userDocRef = doc(db, 'users', currentUser.uid);
       await updateDoc(userDocRef, {
         completedTestsCount: newCount,
         totalScoreSum: newSum,
         averageScore: newAverage,
+        points: newPoints,
       });
     } catch (err) {
       handleFirestoreError(err, OperationType.CREATE, 'exam_submissions');

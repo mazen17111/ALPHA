@@ -122,7 +122,7 @@ export const LandingPage: React.FC = () => {
             <img
               src={alphaLogo}
               alt="شعار منصة ALPHA"
-              className="w-full h-full object-cover rounded-[22px]"
+              className="w-full h-full object-contain p-1 rounded-[22px]"
             />
           </div>
           <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full border border-amber-500/40 bg-amber-500/10 text-amber-400 shadow-lg shadow-amber-500/10">

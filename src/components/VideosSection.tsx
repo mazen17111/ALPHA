@@ -11,7 +11,7 @@ import {
   Clock,
   ArrowRight,
 } from 'lucide-react';
-import { getMediaItem } from '../utils/storage';
+import { getMediaItem, resolveFastMediaUrl } from '../utils/storage';
 
 interface VideosSectionProps {
   videos: VideoItem[];
@@ -48,12 +48,13 @@ export const VideosSection: React.FC<VideosSectionProps> = ({
         return;
       }
 
-      if (selectedVideo.url === 'indexeddb') {
-        const stored = await getMediaItem(selectedVideo.id);
+      try {
+        const fastUrl = await resolveFastMediaUrl(selectedVideo.url, selectedVideo.id);
         if (isMounted) {
-          setResolvedVideoUrl(stored || '');
+          setResolvedVideoUrl(fastUrl);
         }
-      } else {
+      } catch (err) {
+        console.warn('Fast video resolve fallback:', err);
         if (isMounted) {
           setResolvedVideoUrl(selectedVideo.url);
         }
@@ -146,6 +147,8 @@ export const VideosSection: React.FC<VideosSectionProps> = ({
                       key={selectedVideo.id}
                       src={resolvedVideoUrl}
                       controls
+                      preload="auto"
+                      playsInline
                       controlsList="nodownload"
                       onContextMenu={(e) => e.preventDefault()}
                       autoPlay={false}
