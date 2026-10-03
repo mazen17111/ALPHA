@@ -341,11 +341,8 @@ export const ChallengeSection: React.FC<ChallengeSectionProps> = ({
         updatePayload.winnerName = 'تعادل بطولي بين الصديقين!';
       }
 
-      // Add points to current user
-      if (onUpdatePoints) {
-        const bonus = isCorrect ? 50 : 25;
-        onUpdatePoints(newScore + bonus);
-      }
+      // Per user instruction: Friend challenges are purely friendly contests and do NOT award leaderboard points
+      // (ولا يأخذ نقاط ضد صديقه لمنع التلاعب وتوحيد النقاط للاختبارات فقط)
     }
 
     try {
@@ -379,7 +376,7 @@ export const ChallengeSection: React.FC<ChallengeSectionProps> = ({
                 منافسة وتحدي الأصدقاء
               </h2>
               <p className="text-xs sm:text-sm text-zinc-400">
-                تنافس مباشرة وبشكل حي مع صديقك على أسئلة المنصة واكسب نقاطاً للوحة المتصدرين
+                تنافس مباشرة وبشكل حي مع صديقك على أسئلة المنصة (مبارزة تدريبية ودية ومباشرة بدون نقاط للوحة المتصدرين)
               </p>
             </div>
           </div>
@@ -966,7 +963,7 @@ export const ChallengeSection: React.FC<ChallengeSectionProps> = ({
 
           <p className="text-sm text-zinc-300 mb-6">
             {isWinner
-              ? 'حققت أعلى نتيجة في التحدي وتمت إضافة نقاط إضافية إلى رصيدك في لوحة المتصدرين!'
+              ? 'حققت أعلى نتيجة وتفوقت في المبارزة الودية ضد صديقك!'
               : 'تنافس رائع يرفع من مستواك وخبرتك في حل المسائل'}
           </p>
 

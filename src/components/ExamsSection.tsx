@@ -24,6 +24,7 @@ import {
   AlertTriangle,
   Star,
   Play,
+  Search,
 } from 'lucide-react';
 import { doc, updateDoc, collection, addDoc } from 'firebase/firestore';
 import { db } from '../firebase';
@@ -60,8 +61,11 @@ export const ExamsSection: React.FC<ExamsSectionProps> = ({
   const [examToPrompt, setExamToPrompt] = useState<Exam | null>(null);
 
   // Requirement: "ميزة الاختبار المجمع تكون موجودة داخل خانة الاختبارات الطالب لما يضغط عليها يقدر يختار اقسام يختبر عليهم مع بعض حتى لو هيختبر على كل الاختبارات الموجودة عالمنصة"
+  const [activeExamTab, setActiveExamTab] = useState<'individual' | 'combined'>('individual');
   const [isCombinedModalOpen, setIsCombinedModalOpen] = useState(false);
   const [selectedCombinedExamIds, setSelectedCombinedExamIds] = useState<string[]>([]);
+  const [combinedSearch, setCombinedSearch] = useState('');
+  const [combinedErrorNotice, setCombinedErrorNotice] = useState('');
 
   // Mistakes auto-transferred notification state
   const [transferredMistakesNotice, setTransferredMistakesNotice] = useState('');
@@ -249,13 +253,18 @@ export const ExamsSection: React.FC<ExamsSectionProps> = ({
         {/* Exam Navigation Header */}
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border-b border-amber-500/20 pb-4">
           <div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <h2 className="text-xl sm:text-2xl font-black text-amber-400 dark:text-amber-400 light:text-amber-600">
                 {currentExam.title}
               </h2>
               <span className="text-xs px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/30 font-bold">
                 نسبة النجاح: {passingRequired}%
               </span>
+              {currentExam.id.startsWith('combined_') && (
+                <span className="text-xs px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-bold flex items-center gap-1">
+                  <span>اختبار مجمع بدون وقت ⏳</span>
+                </span>
+              )}
             </div>
             <p className="text-xs text-zinc-400 mt-1">
               السؤال {currentQuestionIndex + 1} من {totalQ} • تم حل ({answeredCount}/{totalQ})
@@ -797,7 +806,10 @@ export const ExamsSection: React.FC<ExamsSectionProps> = ({
 
   const handleBuildCombinedExam = () => {
     const chosen = visibleExams.filter((e) => selectedCombinedExamIds.includes(e.id));
-    if (chosen.length === 0) return;
+    if (chosen.length === 0) {
+      setCombinedErrorNotice('يرجى تحديد اختبار واحد على الأقل من القائمة');
+      return;
+    }
 
     const aggregatedQuestions: Question[] = [];
     chosen.forEach((ex) => {
@@ -810,17 +822,19 @@ export const ExamsSection: React.FC<ExamsSectionProps> = ({
     });
 
     if (aggregatedQuestions.length === 0) {
-      alert('الأقسام المختارة لا تحتوي على أسئلة');
+      setCombinedErrorNotice('الاختبارات المختارة لا تحتوي على أسئلة');
       return;
     }
 
+    setCombinedErrorNotice('');
     const combinedExam: Exam = {
       id: `combined_${Date.now()}`,
       title: selectedCombinedExamIds.length === visibleExams.length
         ? 'الاختبار المجمع الشامل (جميع اختبارات المنصة)'
         : `اختبار مجمع (${chosen.length} أقسام مختارة)`,
-      description: `اختبار مجمع شامل يضم ${aggregatedQuestions.length} سؤالاً من الأقسام المختارة`,
-      durationMinutes: Math.max(15, Math.round(aggregatedQuestions.length * 1.5)),
+      description: `اختبار مجمع شامل يضم ${aggregatedQuestions.length} سؤالاً من الأقسام المختارة (بدون وقت محدد)`,
+      durationMinutes: 0,
+      isUntimed: true,
       passingPercentage: 60,
       questions: aggregatedQuestions,
       createdAt: new Date().toISOString(),
@@ -831,6 +845,19 @@ export const ExamsSection: React.FC<ExamsSectionProps> = ({
     setExamToPrompt(combinedExam);
   };
 
+  const filteredCombinedExams = visibleExams.filter((e) => {
+    if (!combinedSearch.trim()) return true;
+    const term = combinedSearch.trim().toLowerCase();
+    return (
+      e.title.toLowerCase().includes(term) ||
+      (e.description && e.description.toLowerCase().includes(term)) ||
+      (e.category && e.category.toLowerCase().includes(term))
+    );
+  });
+
+  const chosenCombinedExams = visibleExams.filter((e) => selectedCombinedExamIds.includes(e.id));
+  const totalCombinedQuestions = chosenCombinedExams.reduce((acc, curr) => acc + (curr.questions?.length || 0), 0);
+
   return (
     <div className="space-y-6 text-right pb-24">
       {/* Header */}
@@ -840,7 +867,7 @@ export const ExamsSection: React.FC<ExamsSectionProps> = ({
             قسم الاختبارات التفاعلية
           </h2>
           <p className="text-xs sm:text-sm text-zinc-400 dark:text-zinc-400 light:text-zinc-600">
-            اختبارات محاكاة ذكية وخارجية مع نسب نجاح وتصحيح فوري لحساب نتيجتك ونسبتك نحو المئوية 100%
+            اختبارات محاكاة ذكية وخارجية مع خانة الاختبار المجمع وحساب نتيجتك ونسبتك نحو المئوية 100%
           </p>
         </div>
 
@@ -849,40 +876,277 @@ export const ExamsSection: React.FC<ExamsSectionProps> = ({
         </AnimatedButton>
       </div>
 
-      {/* Requirement: "ضيف ميزة الاختبار المجمع تكون موجودة داخل خانة الاختبارات الطالب لما يضغط عليها يقدر يختار اقسام يختبر عليهم مع بعض حتى لو هيختبر على كل الاختبارات الموجودة عالمنصة" */}
-      <div className="p-5 sm:p-6 rounded-3xl border-2 border-amber-500/50 bg-gradient-to-r from-amber-500/20 via-yellow-500/10 to-zinc-950 shadow-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-        <div className="flex items-center gap-3.5">
-          <div className="w-12 h-12 rounded-2xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400 shrink-0 shadow-lg">
-            <Layers className="w-6 h-6 animate-pulse" />
-          </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <h3 className="text-lg sm:text-xl font-black text-amber-300">
-                ميزة الاختبار المجمع الشامل
-              </h3>
-              <span className="text-[10px] px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-400 font-bold border border-amber-500/30">
-                ميزة مميزة
-              </span>
+      {/* Navigation Tabs: Individual Exams VS Dedicated Combined Exam Box */}
+      <div className="flex flex-wrap items-center gap-3 border-b border-amber-500/20 pb-3">
+        <button
+          type="button"
+          onClick={() => setActiveExamTab('individual')}
+          className={`flex items-center gap-2 px-5 py-2.5 rounded-2xl font-black text-sm transition-all cursor-pointer ${
+            activeExamTab === 'individual'
+              ? 'bg-amber-500 text-black shadow-lg shadow-amber-500/30 scale-[1.02]'
+              : 'bg-zinc-900/80 text-zinc-400 hover:text-white border border-amber-500/20'
+          }`}
+        >
+          <HelpCircle className="w-4 h-4" />
+          <span>الاختبارات الفردية ({visibleExams.length})</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => {
+            setActiveExamTab('combined');
+            if (selectedCombinedExamIds.length === 0) {
+              setSelectedCombinedExamIds(visibleExams.map((e) => e.id));
+            }
+          }}
+          className={`flex items-center gap-2 px-5 py-2.5 rounded-2xl font-black text-sm transition-all cursor-pointer relative ${
+            activeExamTab === 'combined'
+              ? 'bg-amber-500 text-black shadow-lg shadow-amber-500/30 scale-[1.02]'
+              : 'bg-zinc-900/80 text-zinc-400 hover:text-white border border-amber-500/20'
+          }`}
+        >
+          <Layers className="w-4 h-4 text-inherit" />
+          <span>خانة الاختبار المجمع</span>
+          <span className={`text-[10px] px-2 py-0.5 rounded-full font-black ${
+            activeExamTab === 'combined' ? 'bg-black text-amber-400' : 'bg-amber-400 text-black animate-pulse'
+          }`}>
+            شامل
+          </span>
+        </button>
+      </div>
+
+      {/* ========================================================================= */}
+      {/* VIEW 1: DEDICATED COMBINED EXAM BOX / STUDIO                              */}
+      {/* ========================================================================= */}
+      {activeExamTab === 'combined' && (
+        <div className="space-y-6">
+          {/* Studio Hero Banner */}
+          <div className="p-6 rounded-3xl border-2 border-amber-500/60 bg-gradient-to-br from-amber-500/20 via-zinc-950 to-black shadow-2xl">
+            <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-5">
+              <div className="flex items-center gap-4">
+                <div className="w-14 h-14 rounded-2xl bg-amber-500/20 border-2 border-amber-400 flex items-center justify-center text-amber-400 shrink-0 shadow-lg shadow-amber-500/20">
+                  <Layers className="w-7 h-7 animate-pulse" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-xl sm:text-2xl font-black text-amber-300">
+                      خانة الاختبار المجمع الشامل
+                    </h3>
+                    <span className="text-[11px] px-2.5 py-0.5 rounded-full bg-amber-400 text-black font-extrabold shadow-sm">
+                      تجميع ذكي
+                    </span>
+                  </div>
+                  <p className="text-xs sm:text-sm text-zinc-300 mt-1 max-w-2xl leading-relaxed">
+                    حدد أي عدد من اختبارات المنصة لدمج أسئلتها وحلها في جلسة اختبار واحدة موحدة، أو اضغط على «تحديد جميع اختبارات المنصة» لخوض اختبار شامل متكامل يحاكي الاختبار الفعلي!
+                  </p>
+                </div>
+              </div>
+
+              {/* Quick Select All / Deselect All Button */}
+              <button
+                type="button"
+                onClick={handleSelectAllCombinedExams}
+                className="px-4 py-2.5 rounded-2xl border-2 border-amber-400 bg-amber-500/15 hover:bg-amber-500/30 text-amber-300 text-xs sm:text-sm font-black transition-all shrink-0 cursor-pointer shadow-md"
+              >
+                {selectedCombinedExamIds.length === visibleExams.length
+                  ? 'إلغاء تحديد الكل'
+                  : `تحديد جميع اختبارات المنصة (${visibleExams.length})`}
+              </button>
             </div>
-            <p className="text-xs text-zinc-300 mt-0.5">
-              يمكنك اختيار عدة أقسام واختبارات لدمجها وحلها معاً، أو اختبار نفسك في جميع اختبارات المنصة دفعة واحدة!
-            </p>
+
+            {/* Metrics Ribbon */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-6 pt-5 border-t border-amber-500/20 text-xs">
+              <div className="p-3 rounded-2xl bg-black/50 border border-amber-500/20">
+                <span className="text-zinc-400 block mb-1">الاختبارات المختارة:</span>
+                <span className="text-base font-black text-amber-400">
+                  {chosenCombinedExams.length} من {visibleExams.length}
+                </span>
+              </div>
+              <div className="p-3 rounded-2xl bg-black/50 border border-amber-500/20">
+                <span className="text-zinc-400 block mb-1">إجمالي الأسئلة:</span>
+                <span className="text-base font-black text-amber-400">
+                  {totalCombinedQuestions} سؤالاً
+                </span>
+              </div>
+              <div className="p-3 rounded-2xl bg-black/50 border border-amber-500/20">
+                <span className="text-zinc-400 block mb-1">وقت الاختبار:</span>
+                <span className="text-base font-black text-emerald-400">
+                  بدون وقت (مفتوح)
+                </span>
+              </div>
+              <div className="p-3 rounded-2xl bg-black/50 border border-amber-500/20">
+                <span className="text-zinc-400 block mb-1">احتساب النقاط:</span>
+                <span className="text-xs font-bold text-amber-400">
+                  نقاط موحدة للرصيد (حتى 20 نقطة)
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* Search bar inside Combined Box */}
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+            <div className="relative w-full sm:w-96">
+              <Search className="w-4 h-4 text-amber-400 absolute right-3.5 top-3.5" />
+              <input
+                type="text"
+                value={combinedSearch}
+                onChange={(e) => setCombinedSearch(e.target.value)}
+                placeholder="ابحث عن اختبار لإضافته للاختبار المجمع..."
+                className="w-full pr-10 pl-4 py-2.5 rounded-2xl border border-amber-500/30 bg-black/60 dark:bg-black/60 light:bg-white text-xs sm:text-sm focus:outline-none focus:border-amber-400 text-zinc-100 dark:text-zinc-100 light:text-zinc-900"
+              />
+            </div>
+
+            <div className="text-xs text-zinc-400 font-bold">
+              انقر على أي بطاقة لاختيارها أو إلغاء اختيارها ضمن الاختبار المجمع
+            </div>
+          </div>
+
+          {/* Error Notice if any */}
+          {combinedErrorNotice && (
+            <div className="p-4 rounded-2xl bg-red-500/15 border border-red-500/40 text-red-400 text-xs font-bold flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4 shrink-0" />
+              <span>{combinedErrorNotice}</span>
+            </div>
+          )}
+
+          {/* Combined Exams Selection Grid */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {filteredCombinedExams.map((ex) => {
+              const isChecked = selectedCombinedExamIds.includes(ex.id);
+              const qCount = ex.questions?.length || 0;
+
+              return (
+                <div
+                  key={ex.id}
+                  onClick={() => {
+                    handleToggleCombinedExamId(ex.id);
+                    setCombinedErrorNotice('');
+                  }}
+                  className={`p-5 rounded-3xl border-2 transition-all cursor-pointer flex flex-col justify-between ${
+                    isChecked
+                      ? 'border-amber-400 bg-amber-500/15 shadow-xl shadow-amber-500/10 scale-[1.01]'
+                      : 'border-zinc-800/80 bg-black/50 hover:border-amber-500/40 text-zinc-300'
+                  }`}
+                >
+                  <div>
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center gap-2.5">
+                        <div
+                          className={`w-6 h-6 rounded-lg border-2 flex items-center justify-center transition-all ${
+                            isChecked
+                              ? 'bg-amber-400 border-amber-400 text-black shadow-md'
+                              : 'border-zinc-700 bg-zinc-900 text-transparent'
+                          }`}
+                        >
+                          <Check className="w-4 h-4 stroke-[3]" />
+                        </div>
+                        <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/30">
+                          {qCount} أسئلة
+                        </span>
+                      </div>
+
+                      {isChecked ? (
+                        <span className="text-[11px] text-amber-300 font-extrabold px-2.5 py-0.5 rounded-full bg-amber-500/25 border border-amber-400/40">
+                          مضاف ✓
+                        </span>
+                      ) : (
+                        <span className="text-[11px] text-zinc-500 font-semibold">
+                          انقر للإضافة
+                        </span>
+                      )}
+                    </div>
+
+                    <h4 className="text-base font-black text-zinc-100 dark:text-zinc-100 light:text-zinc-900 mb-1.5">
+                      {ex.title}
+                    </h4>
+
+                    {ex.description && (
+                      <p className="text-xs text-zinc-400 line-clamp-2 mb-3">
+                        {ex.description}
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="flex items-center justify-between pt-3 border-t border-amber-500/15 text-[11px] text-zinc-400">
+                    <span>القسم: {ex.category || 'عام'}</span>
+                    <span>النجاح: {ex.passingPercentage || 60}%</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Sticky Bottom Launcher CTA */}
+          <div className="sticky bottom-4 z-30 p-4 rounded-3xl border-2 border-amber-400 bg-zinc-950/95 backdrop-blur-md shadow-2xl flex flex-col sm:flex-row items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-amber-500/20 border border-amber-400 flex items-center justify-center text-amber-400 shrink-0">
+                <Play className="w-5 h-5 fill-current" />
+              </div>
+              <div>
+                <div className="text-sm font-black text-amber-300">
+                  جاهز لبدء الاختبار المجمع؟
+                </div>
+                <div className="text-xs text-zinc-400">
+                  تم تحديد <b className="text-amber-400">{chosenCombinedExams.length} اختبارات</b> بإجمالي <b className="text-amber-400">{totalCombinedQuestions} سؤالاً</b>
+                </div>
+              </div>
+            </div>
+
+            <AnimatedButton
+              variant="gold"
+              size="lg"
+              disabled={chosenCombinedExams.length === 0 || totalCombinedQuestions === 0}
+              onClick={handleBuildCombinedExam}
+              icon={<Play className="w-5 h-5 ml-1 fill-current" />}
+              className="w-full sm:w-auto px-8 py-3 text-sm font-black shadow-xl"
+            >
+              بدء الاختبار المجمع الآن ({totalCombinedQuestions} سؤالاً)
+            </AnimatedButton>
           </div>
         </div>
+      )}
 
-        <AnimatedButton
-          variant="gold"
-          size="md"
-          onClick={() => {
-            setSelectedCombinedExamIds(visibleExams.map((e) => e.id));
-            setIsCombinedModalOpen(true);
-          }}
-          icon={<Layers className="w-4 h-4 ml-1" />}
-          className="shadow-xl shrink-0"
-        >
-          صناعة اختبار مجمع
-        </AnimatedButton>
-      </div>
+      {/* ========================================================================= */}
+      {/* VIEW 2: INDIVIDUAL EXAMS GRID                                             */}
+      {/* ========================================================================= */}
+      {activeExamTab === 'individual' && (
+        <div className="space-y-6">
+          {/* Quick Banner to Launch Combined Exam */}
+          <div className="p-5 sm:p-6 rounded-3xl border-2 border-amber-500/50 bg-gradient-to-r from-amber-500/20 via-yellow-500/10 to-zinc-950 shadow-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+            <div className="flex items-center gap-3.5">
+              <div className="w-12 h-12 rounded-2xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400 shrink-0 shadow-lg">
+                <Layers className="w-6 h-6 animate-pulse" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h3 className="text-lg sm:text-xl font-black text-amber-300">
+                    ميزة الاختبار المجمع الشامل
+                  </h3>
+                  <span className="text-[10px] px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-400 font-bold border border-amber-500/30">
+                    ميزة مميزة
+                  </span>
+                </div>
+                <p className="text-xs text-zinc-300 mt-0.5">
+                  يمكنك اختيار عدة أقسام واختبارات لدمجها وحلها معاً، أو اختبار نفسك في جميع اختبارات المنصة دفعة واحدة!
+                </p>
+              </div>
+            </div>
+
+            <AnimatedButton
+              variant="gold"
+              size="md"
+              onClick={() => {
+                setActiveExamTab('combined');
+                if (selectedCombinedExamIds.length === 0) {
+                  setSelectedCombinedExamIds(visibleExams.map((e) => e.id));
+                }
+              }}
+              icon={<Layers className="w-4 h-4 ml-1" />}
+              className="shadow-xl shrink-0"
+            >
+              فتح خانة الاختبار المجمع
+            </AnimatedButton>
+          </div>
 
       {visibleExams.length === 0 ? (
         <div className="p-12 text-center rounded-3xl border border-amber-500/20 bg-black/40">
@@ -949,6 +1213,8 @@ export const ExamsSection: React.FC<ExamsSectionProps> = ({
           })}
         </div>
       )}
+        </div>
+      )}
 
       {/* ========================================================================= */}
       {/* Requirement: "قبل ان يبدا الشخص الاختبار يظهر له ملحوظة اذا جاب فوق 50 فالمية فسيتم اخذ نقاط على حسب درجته واذا جاب اقل من 50 فالمية يخصم منه تلقائيا 20 نقطة" */}
@@ -969,9 +1235,15 @@ export const ExamsSection: React.FC<ExamsSectionProps> = ({
               <h3 className="text-xl sm:text-2xl font-black text-center text-amber-300 mb-1">
                 تنبيه هام لنظام النقاط قبل البدء
               </h3>
-              <p className="text-xs text-center text-zinc-400 mb-5 font-bold">
+              <p className="text-xs text-center text-zinc-400 mb-3 font-bold">
                 الاختبار: {examToPrompt.title}
               </p>
+
+              {examToPrompt.id.startsWith('combined_') && (
+                <div className="mb-4 p-3 rounded-2xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-xs font-bold text-center flex items-center justify-center gap-2">
+                  <span>⏳ هذا الاختبار المجمع بدون وقت — يمكنك الحل بأريحية تامة وبدون قيود زمنية!</span>
+                </div>
+              )}
 
               <div className="p-4 rounded-2xl border border-amber-500/30 bg-amber-500/5 space-y-3 mb-6 text-xs text-zinc-200 leading-relaxed">
                 <div className="flex items-start gap-2.5">

@@ -610,17 +610,6 @@ function MainAppContent() {
                 currentUserProfile={userProfile}
                 allExams={exams.filter((e) => !e.customBlockId)}
                 onBack={() => setActiveView('dashboard')}
-                onUpdatePoints={async (pts) => {
-                  if (!currentUser?.uid) return;
-                  try {
-                    const curPts = userProfile?.points || 0;
-                    await updateDoc(doc(db, 'users', currentUser.uid), {
-                      points: curPts + pts,
-                    });
-                  } catch (e) {
-                    console.warn('Challenge points update error:', e);
-                  }
-                }}
               />
             )}
           </div>

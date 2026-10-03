@@ -47,36 +47,28 @@ interface AuthContextType {
   setNeedsNamePrompt: (val: boolean) => void;
 }
 
-// Points calculation function adhering to exact requirements:
+// Unified points calculation adhering strictly to user requirements:
 // If percentage < 50%: deducts 20 points!
 // If percentage === 100%: awards maximum 20 points
-// If percentage >= 90%: awards 10 points, down to proportional points for 50-89%
+// From 50% to 99%: unified points per percentage score range so any student scoring that percentage receives identical points
 export function calculateExamPointsEarned(percentage: number): number {
-  if (percentage < 50) {
-    return -20; // يخصم منه تلقائياً 20 نقطة
+  const p = Math.round(percentage);
+  if (p < 50) {
+    return -20; // يخصم منه تلقائياً 20 نقطة لأي درجة أقل من 50%
   }
-  if (percentage === 100) {
-    return 20; // أعلى درجة ممكن ياخدها هي 20 نقطة في الاختبار الواحد لو جاب 100%
+  if (p >= 100) {
+    return 20; // أعلى درجة ممكن يأخذها هي 20 نقطة في الاختبار عند 100%
   }
-  if (percentage >= 95) {
-    return 10;
-  }
-  if (percentage >= 90) {
-    return 9;
-  }
-  if (percentage >= 85) {
-    return 8;
-  }
-  if (percentage >= 80) {
-    return 7;
-  }
-  if (percentage >= 70) {
-    return 5;
-  }
-  if (percentage >= 60) {
-    return 3;
-  }
-  return 1; // 50% إلى 59%
+  if (p >= 95) return 18;
+  if (p >= 90) return 15;
+  if (p >= 85) return 12;
+  if (p >= 80) return 10;
+  if (p >= 75) return 8;
+  if (p >= 70) return 6;
+  if (p >= 65) return 4;
+  if (p >= 60) return 3;
+  if (p >= 55) return 2;
+  return 1; // 50% إلى 54%
 }
 
 const LOCAL_STUDENT_KEY = 'alpha_active_student_session';
@@ -680,7 +672,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return updated;
       });
 
-      const userDocRef = doc(db, 'users', currentUser.uid);
+      const targetDocId = userProfile?.id || currentUser.uid;
+      const userDocRef = doc(db, 'users', targetDocId);
       await updateDoc(userDocRef, {
         completedTestsCount: newCount,
         totalScoreSum: newSum,

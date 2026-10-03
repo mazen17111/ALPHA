@@ -60,6 +60,7 @@ export interface Exam {
   title: string;
   description: string;
   durationMinutes: number;
+  isUntimed?: boolean; // اختبار بدون وقت (مثل الاختبار المجمع)
   examType?: 'external' | 'platform';
   passingPercentage?: number; // نسبة النجاح
   externalExamUrl?: string; // رابط الاختبار الخارجي الكامل
