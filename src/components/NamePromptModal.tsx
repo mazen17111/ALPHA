@@ -19,7 +19,7 @@ export const NamePromptModal: React.FC = () => {
       await updateName(name.trim());
       setNeedsNamePrompt(false);
     } catch (err) {
-      console.error(err);
+      console.warn('Name update notice:', err);
     } finally {
       setSubmitting(false);
     }
@@ -40,7 +40,7 @@ export const NamePromptModal: React.FC = () => {
           مرحباً بك في منصة ALPHA!
         </h3>
         <p className="text-xs text-center text-zinc-400 dark:text-zinc-400 light:text-zinc-600 mb-6">
-          لقد قمت بالتسجيل عبر Google. يرجى تأكيد اسمك ليظهر في شهاداتك وإحصائياتك نحو المئوية.
+          أهلاً بك في منصة ألفا التعليمية! يرجى كتابة أو تأكيد اسمك ليظهر في شهاداتك وإحصائياتك ولوحة المتصدرين.
         </p>
 
         <form onSubmit={handleSave} className="space-y-4">

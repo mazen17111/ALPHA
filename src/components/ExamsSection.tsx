@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Exam, Question, StudentFolder } from '../types';
-import { useAuth } from '../context/AuthContext';
+import { useAuth, calculateExamPointsEarned } from '../context/AuthContext';
 import { AnimatedButton } from './AnimatedButton';
 import { motion, AnimatePresence } from 'motion/react';
 import {
@@ -19,7 +19,11 @@ import {
   FolderPlus,
   Check,
   Lock,
-  PenTool
+  PenTool,
+  Layers,
+  AlertTriangle,
+  Star,
+  Play,
 } from 'lucide-react';
 import { doc, updateDoc, collection, addDoc } from 'firebase/firestore';
 import { db } from '../firebase';
@@ -52,6 +56,13 @@ export const ExamsSection: React.FC<ExamsSectionProps> = ({
     passed: boolean;
   } | null>(null);
 
+  // Requirement: "قبل ان يبدا الشخص الاختبار يظهر له ملحوظة اذا جاب فوق 50 فالمية فسيتم اخذ نقاط على حسب درجته واذا جاب اقل من 50 فالمية يخصم منه تلقائيا 20 نقطة"
+  const [examToPrompt, setExamToPrompt] = useState<Exam | null>(null);
+
+  // Requirement: "ميزة الاختبار المجمع تكون موجودة داخل خانة الاختبارات الطالب لما يضغط عليها يقدر يختار اقسام يختبر عليهم مع بعض حتى لو هيختبر على كل الاختبارات الموجودة عالمنصة"
+  const [isCombinedModalOpen, setIsCombinedModalOpen] = useState(false);
+  const [selectedCombinedExamIds, setSelectedCombinedExamIds] = useState<string[]>([]);
+
   // Mistakes auto-transferred notification state
   const [transferredMistakesNotice, setTransferredMistakesNotice] = useState('');
 
@@ -63,27 +74,30 @@ export const ExamsSection: React.FC<ExamsSectionProps> = ({
 
   React.useEffect(() => {
     if (activeExamToTake) {
-      setCurrentExam(activeExamToTake);
-      setCurrentQuestionIndex(0);
-      setSelectedAnswers({});
-      setIsSubmitted(false);
-      setExamResult(null);
-      setTransferredMistakesNotice('');
+      handleRequestStartExam(activeExamToTake);
     }
   }, [activeExamToTake]);
 
-  const handleStartExam = (exam: Exam) => {
+  // Prompt the user before starting exam
+  const handleRequestStartExam = (exam: Exam) => {
     if (exam.externalExamUrl || exam.examType === 'external') {
       window.open(exam.externalExamUrl, '_blank', 'noopener,noreferrer');
       return;
     }
+    // Show pre-test notice modal
+    setExamToPrompt(exam);
+  };
 
+  // Actually start the exam after student confirms the points notice
+  const handleActuallyStartExam = (exam: Exam) => {
     setCurrentExam(exam);
     setCurrentQuestionIndex(0);
     setSelectedAnswers({});
     setIsSubmitted(false);
     setExamResult(null);
     setTransferredMistakesNotice('');
+    setExamToPrompt(null);
+    if (onClearActiveExam) onClearActiveExam();
   };
 
   const handleSelectOption = (questionIndex: number, optionIndex: number) => {
@@ -333,6 +347,26 @@ export const ExamsSection: React.FC<ExamsSectionProps> = ({
                 <div className="text-xs text-zinc-400 mt-1">النسبة المئوية</div>
               </div>
             </div>
+
+            {/* Points Awarded or Deducted Banner */}
+            {(() => {
+              const delta = calculateExamPointsEarned(examResult.percentage);
+              return (
+                <div className="mb-6 p-4 rounded-2xl border-2 flex items-center justify-center gap-3 shadow-lg max-w-lg mx-auto text-sm font-black">
+                  {delta > 0 ? (
+                    <div className="text-emerald-300 bg-emerald-500/15 border-emerald-500/30 border p-3.5 rounded-2xl w-full flex items-center justify-center gap-2">
+                      <Star className="w-5 h-5 fill-emerald-400 text-emerald-400 shrink-0" />
+                      <span>+{delta} نقطة تمت إضافتها إلى رصيدك في لوحة المتصدرين! 🌟</span>
+                    </div>
+                  ) : (
+                    <div className="text-red-300 bg-red-500/15 border-red-500/30 border p-3.5 rounded-2xl w-full flex items-center justify-center gap-2">
+                      <AlertTriangle className="w-5 h-5 text-red-400 shrink-0" />
+                      <span>تم خصم 20 نقطة من رصيدك لأن نتيجتك أقل من 50%! ⚠️</span>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
 
             {/* Automatic Mistakes Transferred Notification Banner */}
             {transferredMistakesNotice && (
@@ -744,6 +778,59 @@ export const ExamsSection: React.FC<ExamsSectionProps> = ({
   // Exams List View (Exams assigned to custom blocks only appear inside their block)
   const visibleExams = exams.filter((e) => !e.customBlockId);
 
+  // Helper for Combined Exam selection
+  const handleToggleCombinedExamId = (examId: string) => {
+    if (selectedCombinedExamIds.includes(examId)) {
+      setSelectedCombinedExamIds(selectedCombinedExamIds.filter((id) => id !== examId));
+    } else {
+      setSelectedCombinedExamIds([...selectedCombinedExamIds, examId]);
+    }
+  };
+
+  const handleSelectAllCombinedExams = () => {
+    if (selectedCombinedExamIds.length === visibleExams.length) {
+      setSelectedCombinedExamIds([]);
+    } else {
+      setSelectedCombinedExamIds(visibleExams.map((e) => e.id));
+    }
+  };
+
+  const handleBuildCombinedExam = () => {
+    const chosen = visibleExams.filter((e) => selectedCombinedExamIds.includes(e.id));
+    if (chosen.length === 0) return;
+
+    const aggregatedQuestions: Question[] = [];
+    chosen.forEach((ex) => {
+      (ex.questions || []).forEach((q, qIdx) => {
+        aggregatedQuestions.push({
+          ...q,
+          text: q.text ? `[${ex.title}] ${q.text}` : `سؤال رقم (${qIdx + 1}) في ${ex.title}`,
+        });
+      });
+    });
+
+    if (aggregatedQuestions.length === 0) {
+      alert('الأقسام المختارة لا تحتوي على أسئلة');
+      return;
+    }
+
+    const combinedExam: Exam = {
+      id: `combined_${Date.now()}`,
+      title: selectedCombinedExamIds.length === visibleExams.length
+        ? 'الاختبار المجمع الشامل (جميع اختبارات المنصة)'
+        : `اختبار مجمع (${chosen.length} أقسام مختارة)`,
+      description: `اختبار مجمع شامل يضم ${aggregatedQuestions.length} سؤالاً من الأقسام المختارة`,
+      durationMinutes: Math.max(15, Math.round(aggregatedQuestions.length * 1.5)),
+      passingPercentage: 60,
+      questions: aggregatedQuestions,
+      createdAt: new Date().toISOString(),
+    };
+
+    setIsCombinedModalOpen(false);
+    // Requirement: Show points briefing notice before starting!
+    setExamToPrompt(combinedExam);
+  };
+
   return (
     <div className="space-y-6 text-right pb-24">
       {/* Header */}
@@ -759,6 +846,41 @@ export const ExamsSection: React.FC<ExamsSectionProps> = ({
 
         <AnimatedButton variant="outline" size="sm" onClick={onBack} icon={<ArrowRight className="w-4 h-4 ml-1" />}>
           العودة للرئيسية
+        </AnimatedButton>
+      </div>
+
+      {/* Requirement: "ضيف ميزة الاختبار المجمع تكون موجودة داخل خانة الاختبارات الطالب لما يضغط عليها يقدر يختار اقسام يختبر عليهم مع بعض حتى لو هيختبر على كل الاختبارات الموجودة عالمنصة" */}
+      <div className="p-5 sm:p-6 rounded-3xl border-2 border-amber-500/50 bg-gradient-to-r from-amber-500/20 via-yellow-500/10 to-zinc-950 shadow-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+        <div className="flex items-center gap-3.5">
+          <div className="w-12 h-12 rounded-2xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400 shrink-0 shadow-lg">
+            <Layers className="w-6 h-6 animate-pulse" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <h3 className="text-lg sm:text-xl font-black text-amber-300">
+                ميزة الاختبار المجمع الشامل
+              </h3>
+              <span className="text-[10px] px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-400 font-bold border border-amber-500/30">
+                ميزة مميزة
+              </span>
+            </div>
+            <p className="text-xs text-zinc-300 mt-0.5">
+              يمكنك اختيار عدة أقسام واختبارات لدمجها وحلها معاً، أو اختبار نفسك في جميع اختبارات المنصة دفعة واحدة!
+            </p>
+          </div>
+        </div>
+
+        <AnimatedButton
+          variant="gold"
+          size="md"
+          onClick={() => {
+            setSelectedCombinedExamIds(visibleExams.map((e) => e.id));
+            setIsCombinedModalOpen(true);
+          }}
+          icon={<Layers className="w-4 h-4 ml-1" />}
+          className="shadow-xl shrink-0"
+        >
+          صناعة اختبار مجمع
         </AnimatedButton>
       </div>
 
@@ -816,7 +938,7 @@ export const ExamsSection: React.FC<ExamsSectionProps> = ({
                   <AnimatedButton
                     variant="gold"
                     size="md"
-                    onClick={() => handleStartExam(exam)}
+                    onClick={() => handleRequestStartExam(exam)}
                     icon={isExt ? <ExternalLink className="w-4 h-4 ml-1" /> : <Sparkles className="w-4 h-4 ml-1" />}
                   >
                     {isExt ? 'فتح الاختبار الخارجي' : 'بدء الاختبار'}
@@ -827,6 +949,193 @@ export const ExamsSection: React.FC<ExamsSectionProps> = ({
           })}
         </div>
       )}
+
+      {/* ========================================================================= */}
+      {/* Requirement: "قبل ان يبدا الشخص الاختبار يظهر له ملحوظة اذا جاب فوق 50 فالمية فسيتم اخذ نقاط على حسب درجته واذا جاب اقل من 50 فالمية يخصم منه تلقائيا 20 نقطة" */}
+      {/* ========================================================================= */}
+      <AnimatePresence>
+        {examToPrompt && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md">
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="w-full max-w-lg p-6 sm:p-7 rounded-3xl border-2 border-amber-500/50 bg-zinc-950 text-right shadow-2xl relative"
+            >
+              <div className="w-14 h-14 rounded-2xl bg-amber-500/20 border-2 border-amber-400 flex items-center justify-center text-amber-400 mx-auto mb-4 shadow-lg">
+                <AlertTriangle className="w-7 h-7 animate-pulse text-amber-400" />
+              </div>
+
+              <h3 className="text-xl sm:text-2xl font-black text-center text-amber-300 mb-1">
+                تنبيه هام لنظام النقاط قبل البدء
+              </h3>
+              <p className="text-xs text-center text-zinc-400 mb-5 font-bold">
+                الاختبار: {examToPrompt.title}
+              </p>
+
+              <div className="p-4 rounded-2xl border border-amber-500/30 bg-amber-500/5 space-y-3 mb-6 text-xs text-zinc-200 leading-relaxed">
+                <div className="flex items-start gap-2.5">
+                  <div className="w-5 h-5 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0 mt-0.5 font-bold">
+                    ✓
+                  </div>
+                  <div>
+                    <span className="font-black text-emerald-400 block mb-0.5">إذا حققت نسبة 50% أو أعلى:</span>
+                    <span>ستحصل على نقاط إضافية في رصيدك بحسب درجتك المئوية (تصل حتى 20 نقطة كحد أقصى عند تحقيق 100%).</span>
+                  </div>
+                </div>
+
+                <div className="flex items-start gap-2.5 pt-2 border-t border-amber-500/20">
+                  <div className="w-5 h-5 rounded-full bg-red-500/20 text-red-400 flex items-center justify-center shrink-0 mt-0.5 font-bold">
+                    ✕
+                  </div>
+                  <div>
+                    <span className="font-black text-red-400 block mb-0.5">إذا حققت نسبة أقل من 50%:</span>
+                    <span>سيتم خصم 20 نقطة تلقائياً من رصيدك في لوحة المتصدرين!</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex gap-3">
+                <AnimatedButton
+                  variant="gold"
+                  size="md"
+                  onClick={() => handleActuallyStartExam(examToPrompt)}
+                  icon={<Play className="w-4 h-4 ml-1 fill-current" />}
+                  className="flex-1 py-3 text-sm font-black shadow-xl"
+                >
+                  فهمت ذلك، ابدأ الاختبار الآن
+                </AnimatedButton>
+                <AnimatedButton
+                  variant="outline"
+                  size="md"
+                  onClick={() => setExamToPrompt(null)}
+                >
+                  إلغاء والعودة
+                </AnimatedButton>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* ========================================================================= */}
+      {/* Requirement: Modal: الاختبار المجمع الشامل                                  */}
+      {/* ========================================================================= */}
+      <AnimatePresence>
+        {isCombinedModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md">
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="w-full max-w-2xl max-h-[90vh] flex flex-col p-6 rounded-3xl border-2 border-amber-500/50 bg-zinc-950 text-right shadow-2xl relative"
+            >
+              <div className="flex items-center justify-between border-b border-amber-500/20 pb-4 mb-4">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-10 h-10 rounded-xl bg-amber-500/20 border border-amber-400 flex items-center justify-center text-amber-400">
+                    <Layers className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-black text-amber-300">
+                      صناعة اختبار مجمع شامل
+                    </h3>
+                    <p className="text-xs text-zinc-400">
+                      حدد الأقسام والاختبارات التي تريد دمجها واختبار نفسك عليها معاً
+                    </p>
+                  </div>
+                </div>
+
+                {/* Select All Toggle */}
+                <button
+                  type="button"
+                  onClick={handleSelectAllCombinedExams}
+                  className="px-3 py-1.5 rounded-xl border border-amber-500/30 bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 text-xs font-bold transition-all cursor-pointer"
+                >
+                  {selectedCombinedExamIds.length === visibleExams.length ? 'إلغاء تحديد الكل' : 'تحديد جميع اختبارات المنصة'}
+                </button>
+              </div>
+
+              {/* List of Exams with Checkboxes */}
+              <div className="flex-1 overflow-y-auto space-y-2 pr-1 custom-scrollbar mb-4">
+                {visibleExams.map((ex) => {
+                  const isChecked = selectedCombinedExamIds.includes(ex.id);
+                  return (
+                    <div
+                      key={ex.id}
+                      onClick={() => handleToggleCombinedExamId(ex.id)}
+                      className={`p-3.5 rounded-2xl border-2 transition-all flex items-center justify-between cursor-pointer ${
+                        isChecked
+                          ? 'border-amber-400 bg-amber-500/20 text-white'
+                          : 'border-zinc-800 bg-zinc-900/60 text-zinc-300 hover:border-amber-500/30'
+                      }`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <div
+                          className={`w-5 h-5 rounded-md border flex items-center justify-center ${
+                            isChecked ? 'bg-amber-400 border-amber-400 text-black' : 'border-zinc-700 bg-black'
+                          }`}
+                        >
+                          {isChecked && <Check className="w-3.5 h-3.5 stroke-[3]" />}
+                        </div>
+                        <div>
+                          <span className="text-sm font-bold block">{ex.title}</span>
+                          <span className="text-[11px] text-zinc-400">
+                            {ex.questions?.length || 0} أسئلة • {ex.category || 'عام'}
+                          </span>
+                        </div>
+                      </div>
+
+                      {isChecked && (
+                        <span className="text-xs text-amber-300 font-bold px-2 py-0.5 rounded bg-amber-500/20">
+                          مضاف للاختبار ✓
+                        </span>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Selected stats summary */}
+              {(() => {
+                const chosen = visibleExams.filter((e) => selectedCombinedExamIds.includes(e.id));
+                const totalQ = chosen.reduce((acc, curr) => acc + (curr.questions?.length || 0), 0);
+
+                return (
+                  <div className="p-3.5 rounded-2xl bg-black/60 border border-amber-500/30 flex items-center justify-between text-xs text-zinc-300 mb-4">
+                    <span>
+                      الأقسام المحددة: <b className="text-amber-400">{chosen.length} من {visibleExams.length}</b>
+                    </span>
+                    <span>
+                      إجمالي الأسئلة المجمعة: <b className="text-amber-400">{totalQ} سؤالاً</b>
+                    </span>
+                  </div>
+                );
+              })()}
+
+              <div className="flex gap-3">
+                <AnimatedButton
+                  variant="gold"
+                  size="md"
+                  disabled={selectedCombinedExamIds.length === 0}
+                  onClick={handleBuildCombinedExam}
+                  icon={<Play className="w-4 h-4 ml-1 fill-current" />}
+                  className="flex-1 py-3 text-sm font-black shadow-xl"
+                >
+                  بدء الاختبار المجمع الآن
+                </AnimatedButton>
+                <AnimatedButton
+                  variant="outline"
+                  size="md"
+                  onClick={() => setIsCombinedModalOpen(false)}
+                >
+                  إلغاء
+                </AnimatedButton>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };
+

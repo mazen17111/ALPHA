@@ -50,13 +50,17 @@ export const LandingPage: React.FC = () => {
         await registerWithEmail(name, email, password);
       }
     } catch (err: any) {
-      console.error('Auth submit error:', err);
-      if (err.message && !err.code) {
+      console.warn('Auth submit notice:', err?.message || err);
+      if (err.message?.includes('البريد الإلكتروني غير مسجل')) {
+        setAuthMode('register');
+        setErrorMsg('يرجى كتابة اسمك لإتمام تسجيل حسابك الجديد مجاناً');
+      } else if (err.message && !err.code) {
         setErrorMsg(err.message);
       } else if (err.code === 'auth/wrong-password' || err.code === 'auth/invalid-credential') {
         setErrorMsg('كلمة المرور غير صحيحة، يرجى التحقق وإعادة المحاولة');
       } else if (err.code === 'auth/user-not-found') {
-        setErrorMsg('البريد الإلكتروني غير مسجل، يرجى إنشاء حساب جديد أولاً');
+        setAuthMode('register');
+        setErrorMsg('هذا البريد جديد، يرجى كتابة اسمك لإنشاء حسابك مجاناً');
       } else if (err.code === 'auth/email-already-in-use') {
         setErrorMsg('هذا البريد مسجل بالفعل، يمكنك التبديل إلى تسجيل الدخول');
       } else {

@@ -48,10 +48,16 @@ export const VideosSection: React.FC<VideosSectionProps> = ({
         return;
       }
 
+      // Instant synchronous assignment for server and remote URLs (no delay)
+      if (selectedVideo.url.startsWith('/api/media/') || selectedVideo.url.startsWith('http')) {
+        setResolvedVideoUrl(selectedVideo.url);
+        return;
+      }
+
       try {
         const fastUrl = await resolveFastMediaUrl(selectedVideo.url, selectedVideo.id);
         if (isMounted) {
-          setResolvedVideoUrl(fastUrl);
+          setResolvedVideoUrl(fastUrl || selectedVideo.url);
         }
       } catch (err) {
         console.warn('Fast video resolve fallback:', err);
@@ -147,7 +153,7 @@ export const VideosSection: React.FC<VideosSectionProps> = ({
                       key={selectedVideo.id}
                       src={resolvedVideoUrl}
                       controls
-                      preload="auto"
+                      preload="metadata"
                       playsInline
                       controlsList="nodownload"
                       onContextMenu={(e) => e.preventDefault()}
@@ -155,8 +161,25 @@ export const VideosSection: React.FC<VideosSectionProps> = ({
                       className="w-full h-full object-contain bg-black select-none"
                     />
                   ) : (
-                    <div className="w-full h-full flex items-center justify-center text-xs text-zinc-400">
-                      جاري تحميل الفيديو...
+                    <div className="w-full h-full flex flex-col items-center justify-center p-6 text-center text-zinc-400">
+                      <p className="text-xs sm:text-sm font-bold text-amber-400 mb-1">
+                        جاري تجهيز وبث الفيديو من خادم المنصة...
+                      </p>
+                      <p className="text-[11px] text-zinc-500 mb-3">
+                        إذا لم يبدأ الفيديو تلقائياً، يمكنك النقر لإعادة التحميل
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setResolvedVideoUrl('');
+                          if (selectedVideo) {
+                            resolveFastMediaUrl(selectedVideo.url, selectedVideo.id).then((u) => setResolvedVideoUrl(u || selectedVideo.url));
+                          }
+                        }}
+                        className="px-3.5 py-1.5 rounded-xl bg-amber-500/15 border border-amber-500/30 text-amber-400 hover:bg-amber-500/25 transition-all text-xs font-bold cursor-pointer"
+                      >
+                        إعادة تحميل المشغل
+                      </button>
                     </div>
                   )}
                 </div>

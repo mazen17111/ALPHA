@@ -11,7 +11,7 @@ import { VideoItem, FileResource, Exam } from './types';
 
 export async function checkAndSeedInitialData() {
   try {
-    if (sessionStorage.getItem('alpha_seeded') === 'true') {
+    if (localStorage.getItem('alpha_initial_seed_done') === 'true') {
       return;
     }
 
@@ -19,17 +19,23 @@ export async function checkAndSeedInitialData() {
     const seedSnap = await getDoc(seedRef);
 
     // If seed already happened once in this project, do not re-insert deleted items!
-    // This strictly respects: "واي شيء احذفه من المنصة لا يعود ابدا"
-    if (seedSnap.exists() && seedSnap.data()?.seeded === true) {
+    // This strictly respects: "اجعل اي شيء احذفه من قسم التحكم يتحذف ولا يعود ابدا"
+    if (seedSnap.exists()) {
+      localStorage.setItem('alpha_initial_seed_done', 'true');
       sessionStorage.setItem('alpha_seeded', 'true');
       return;
     }
 
-    // Check if videos collection has any documents
-    const videosSnap = await getDocs(collection(db, 'videos'));
-    if (!videosSnap.empty) {
-      // Mark as seeded so we never overwrite user's deleted items
+    // Check if any collection has any documents already
+    const [videosSnap, filesSnap, examsSnap] = await Promise.all([
+      getDocs(collection(db, 'videos')),
+      getDocs(collection(db, 'files')),
+      getDocs(collection(db, 'exams')),
+    ]);
+
+    if (!videosSnap.empty || !filesSnap.empty || !examsSnap.empty) {
       await setDoc(seedRef, { seeded: true, timestamp: new Date().toISOString() });
+      localStorage.setItem('alpha_initial_seed_done', 'true');
       sessionStorage.setItem('alpha_seeded', 'true');
       return;
     }

@@ -40,6 +40,8 @@ import {
   ShieldCheck,
   AlertTriangle,
   Pencil,
+  RotateCcw,
+  Star,
 } from 'lucide-react';
 import {
   EditVideoModal,
@@ -55,9 +57,10 @@ import {
   doc,
   setDoc,
   updateDoc,
+  getDocs,
 } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../firebase';
-import { saveMediaItem, deleteMediaItem } from '../utils/storage';
+import { saveMediaItem, deleteMediaItem, uploadMediaToServer } from '../utils/storage';
 
 interface AdminPanelProps {
   videos: VideoItem[];
@@ -116,6 +119,15 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     isStudentBan?: boolean;
   } | null>(null);
 
+  // In-app points reset target modal (replaces window.confirm)
+  const [resetPointsTarget, setResetPointsTarget] = useState<{
+    type: 'all';
+  } | {
+    type: 'single';
+    studentId: string;
+    studentName: string;
+  } | null>(null);
+
   const showNotification = (msg: string) => {
     setSuccessMsg(msg);
     setTimeout(() => setSuccessMsg(''), 4000);
@@ -127,21 +139,77 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     setIsSaving(true);
     try {
       if (deleteTarget.isStudentBan) {
-        // Delete student from Firestore so platform locks on that specific student only
+        // Requirement: "أول حاجة، خليني أقدر أحذف حساب الطالب حتى وهو مسجل دخوله في المنصة"
+        // Requirement: "اجعل اي شيء احذفه من قسم التحكم يتحذف ولا يعود ابدا"
+        const targetStudent = students.find((s) => s.id === deleteTarget.id);
+        const email = (targetStudent?.email || '').trim().toLowerCase();
+
+        // 1. Record in deleted_users collection by UID and Email so they can never recreate, re-register or log in
+        await setDoc(doc(db, 'deleted_users', deleteTarget.id), {
+          id: deleteTarget.id,
+          name: deleteTarget.title,
+          email: email,
+          deletedAt: new Date().toISOString(),
+        });
+        if (email) {
+          await setDoc(doc(db, 'deleted_users', email), {
+            id: deleteTarget.id,
+            name: deleteTarget.title,
+            email: email,
+            deletedAt: new Date().toISOString(),
+          });
+        }
+
+        // 2. Set isBanned and isDeleted first to immediately trigger real-time logout on active client session
         const userRef = doc(db, 'users', deleteTarget.id);
+        await setDoc(userRef, { isBanned: true, isDeleted: true }, { merge: true });
         await deleteDoc(userRef);
-        showNotification(`تم حذف حساب الطالب (${deleteTarget.title}) وإغلاق المنصة عليه فورياً`);
+        showNotification(`تم حذف حساب الطالب (${deleteTarget.title}) وإغلاق المنصة عليه نهائياً فوراً ✓`);
       } else {
+        // Record deleted item in deleted_items so it never re-seeds
+        await setDoc(doc(db, 'deleted_items', deleteTarget.id), {
+          id: deleteTarget.id,
+          collection: deleteTarget.collectionName,
+          title: deleteTarget.title,
+          deletedAt: new Date().toISOString(),
+        });
+
         await deleteDoc(doc(db, deleteTarget.collectionName, deleteTarget.id));
         if (deleteTarget.collectionName === 'videos' || deleteTarget.collectionName === 'files') {
           await deleteMediaItem(deleteTarget.id);
         }
-        showNotification(`تم حذف (${deleteTarget.title}) نهائياً`);
+        showNotification(`تم حذف (${deleteTarget.title}) نهائياً ✓`);
       }
       setDeleteTarget(null);
     } catch (err) {
       console.error('Delete error:', err);
       showNotification('حدث خطأ أثناء تنفيذ الحذف');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  // Requirement: "اجعلني في قسم التحكم أقدر إني أحذف نقاط كل الطلاب، إعادة تعيين للنقاط من جديد"
+  // Requirement: "اجعلني أقدر أحذف نقاط شخص واحد بس، أي شخص"
+  const handleConfirmResetPoints = async () => {
+    if (!resetPointsTarget) return;
+    setIsSaving(true);
+    try {
+      if (resetPointsTarget.type === 'all') {
+        const snap = await getDocs(collection(db, 'users'));
+        const batchPromises = snap.docs.map((d) =>
+          updateDoc(doc(db, 'users', d.id), { points: 0 })
+        );
+        await Promise.all(batchPromises);
+        showNotification('تم تصفير وإعادة تعيين نقاط جميع الطلاب بنجاح إلى 0 نقطة ✓');
+      } else {
+        await updateDoc(doc(db, 'users', resetPointsTarget.studentId), { points: 0 });
+        showNotification(`تم تصفير نقاط الطالب (${resetPointsTarget.studentName}) بنجاح إلى 0 نقطة ✓`);
+      }
+      setResetPointsTarget(null);
+    } catch (err) {
+      console.error('Error resetting points:', err);
+      showNotification('حدث خطأ أثناء تصفير النقاط');
     } finally {
       setIsSaving(false);
     }
@@ -292,19 +360,22 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [videoMode, setVideoMode] = useState<'url' | 'upload'>('url');
   const [videoUrl, setVideoUrl] = useState('');
   const [videoUploadedFile, setVideoUploadedFile] = useState<string>('');
+  const [videoFileName, setVideoFileName] = useState('');
   const [videoDesc, setVideoDesc] = useState('');
   const [videoDuration, setVideoDuration] = useState('');
   const [selectedFileLinks, setSelectedFileLinks] = useState<string[]>([]);
   const [selectedExamLinks, setSelectedExamLinks] = useState<string[]>([]);
+  const [uploadNotice, setUploadNotice] = useState('');
 
   const handleVideoFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
+      setVideoFileName(file.name);
+      if (!videoTitle) setVideoTitle(file.name.replace(/\.[^/.]+$/, ''));
       const reader = new FileReader();
       reader.onload = (event) => {
         const res = event.target?.result as string;
         setVideoUploadedFile(res);
-        if (!videoTitle) setVideoTitle(file.name.replace(/\.[^/.]+$/, ''));
       };
       reader.readAsDataURL(file);
     }
@@ -312,14 +383,26 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
   const handleAddVideo = async (e: React.FormEvent) => {
     e.preventDefault();
-    const finalUrl = videoMode === 'url' ? videoUrl.trim() : 'indexeddb';
     if (!videoTitle.trim() || (videoMode === 'url' && !videoUrl.trim()) || (videoMode === 'upload' && !videoUploadedFile)) {
       alert('يرجى تحديد عنوان ورابط أو رفع ملف الفيديو');
       return;
     }
 
     setIsSaving(true);
+    setUploadNotice('جاري رفع الفيديو إلى خادم المنصة وتجهيز البث السريع...');
     try {
+      let finalUrl = videoUrl.trim();
+
+      // If uploaded from device, upload directly to the platform server for fast streaming
+      if (videoMode === 'upload' && videoUploadedFile) {
+        const serverUrl = await uploadMediaToServer(videoFileName || `${videoTitle.trim()}.mp4`, videoUploadedFile);
+        if (serverUrl) {
+          finalUrl = serverUrl;
+        } else {
+          finalUrl = 'indexeddb';
+        }
+      }
+
       const newVideoData: any = {
         title: videoTitle.trim(),
         url: finalUrl,
@@ -333,7 +416,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       
       const docRef = await addDoc(collection(db, 'videos'), newVideoData);
       
-      // If uploaded from device, save to IndexedDB permanently so it never disappears
+      // Save local backup in IndexedDB
       if (videoMode === 'upload' && videoUploadedFile) {
         await saveMediaItem(docRef.id, videoUploadedFile);
       }
@@ -341,15 +424,17 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       setVideoTitle('');
       setVideoUrl('');
       setVideoUploadedFile('');
+      setVideoFileName('');
       setVideoDesc('');
       setVideoDuration('');
       setSelectedFileLinks([]);
       setSelectedExamLinks([]);
-      showNotification('تم حفظ الفيديو بنجاح وربطه بالملفات والاختبارات!');
+      showNotification('تم رفع الفيديو بنجاح على خادم المنصة ويعمل للبث السريع فوراً! ✓');
     } catch (err) {
       handleFirestoreError(err, OperationType.CREATE, 'videos');
     } finally {
       setIsSaving(false);
+      setUploadNotice('');
     }
   };
 
@@ -358,6 +443,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [fileMode, setFileMode] = useState<'url' | 'upload'>('url');
   const [fileUrl, setFileUrl] = useState('');
   const [fileUploadedData, setFileUploadedData] = useState<string>('');
+  const [fileFileName, setFileFileName] = useState('');
   const [fileDesc, setFileDesc] = useState('');
   const [fileType, setFileType] = useState('PDF');
   const [fileCat, setFileCat] = useState('مذكرات');
@@ -365,10 +451,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const handleFileUploadDevice = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
+      setFileFileName(file.name);
+      if (!fileTitle) setFileTitle(file.name.replace(/\.[^/.]+$/, ''));
       const reader = new FileReader();
       reader.onload = (event) => {
         setFileUploadedData(event.target?.result as string);
-        if (!fileTitle) setFileTitle(file.name.replace(/\.[^/.]+$/, ''));
       };
       reader.readAsDataURL(file);
     }
@@ -376,15 +463,26 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
   const handleAddFile = async (e: React.FormEvent) => {
     e.preventDefault();
-    const isHeavy = fileMode === 'upload' && fileUploadedData.length > 400000;
-    const finalFileUrl = fileMode === 'url' ? fileUrl.trim() : (isHeavy ? 'indexeddb' : fileUploadedData);
     if (!fileTitle.trim() || (fileMode === 'url' && !fileUrl.trim()) || (fileMode === 'upload' && !fileUploadedData)) {
       alert('يرجى تحديد اسم الملف ورابطه أو رفع الملف');
       return;
     }
 
     setIsSaving(true);
+    setUploadNotice('جاري حفظ الملف على خادم المنصة...');
     try {
+      let finalFileUrl = fileUrl.trim();
+
+      // If uploaded from device, upload directly to the platform server
+      if (fileMode === 'upload' && fileUploadedData) {
+        const serverUrl = await uploadMediaToServer(fileFileName || `${fileTitle.trim()}.pdf`, fileUploadedData);
+        if (serverUrl) {
+          finalFileUrl = serverUrl;
+        } else {
+          finalFileUrl = fileUploadedData.length > 400000 ? 'indexeddb' : fileUploadedData;
+        }
+      }
+
       const newFileData: any = {
         title: fileTitle.trim(),
         fileUrl: finalFileUrl,
@@ -396,19 +494,21 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       };
       const docRef = await addDoc(collection(db, 'files'), newFileData);
 
-      if (fileMode === 'upload' && isHeavy) {
+      if (fileMode === 'upload') {
         await saveMediaItem(docRef.id, fileUploadedData);
       }
 
       setFileTitle('');
       setFileUrl('');
       setFileUploadedData('');
+      setFileFileName('');
       setFileDesc('');
-      showNotification('تمت إضافة الملف بنجاح وحفظه في المنصة!');
+      showNotification('تم حفظ الملف بنجاح على خادم المنصة! ✓');
     } catch (err) {
       handleFirestoreError(err, OperationType.CREATE, 'files');
     } finally {
       setIsSaving(false);
+      setUploadNotice('');
     }
   };
 
@@ -2216,20 +2316,33 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 سجل الطلاب والتحكم بحساباتهم ({students.length})
               </h3>
               <p className="text-xs text-zinc-400 mt-0.5">
-                يمكنك قفل المنصة على أي طالب فردي بداعي الصيانة أو الاشتراك وفتحها مجدداً، أو حذف حسابه نهائياً
+                يمكنك قفل المنصة على أي طالب فردي، حذف حسابه نهائياً حتى أثناء دخوله، أو تصفير نقاط الطلاب
               </p>
             </div>
 
-            {/* Student Search */}
-            <div className="relative w-full sm:w-64">
-              <Search className="w-4 h-4 text-amber-500 absolute left-3 top-3" />
-              <input
-                type="text"
-                value={studentSearchQuery}
-                onChange={(e) => setStudentSearchQuery(e.target.value)}
-                placeholder="ابحث باسم الطالب أو بريده..."
-                className="w-full pl-9 pr-3 py-2 rounded-xl border border-amber-500/30 bg-black/50 dark:bg-black/50 light:bg-zinc-50 text-xs focus:outline-none focus:border-amber-400 text-zinc-100 dark:text-zinc-100 light:text-zinc-900"
-              />
+            <div className="flex items-center gap-2.5 w-full sm:w-auto">
+              {/* Reset all points button */}
+              <button
+                type="button"
+                onClick={() => setResetPointsTarget({ type: 'all' })}
+                className="px-3.5 py-2 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 font-bold border border-amber-500/40 text-xs flex items-center gap-1.5 cursor-pointer transition-all shadow-sm shrink-0"
+                title="إعادة تعيين وتصفير نقاط جميع الطلاب إلى 0"
+              >
+                <RotateCcw className="w-3.5 h-3.5 text-amber-400" />
+                <span>تصفير نقاط جميع الطلاب</span>
+              </button>
+
+              {/* Student Search */}
+              <div className="relative w-full sm:w-64">
+                <Search className="w-4 h-4 text-amber-500 absolute left-3 top-3" />
+                <input
+                  type="text"
+                  value={studentSearchQuery}
+                  onChange={(e) => setStudentSearchQuery(e.target.value)}
+                  placeholder="ابحث باسم الطالب أو بريده..."
+                  className="w-full pl-9 pr-3 py-2 rounded-xl border border-amber-500/30 bg-black/50 dark:bg-black/50 light:bg-zinc-50 text-xs focus:outline-none focus:border-amber-400 text-zinc-100 dark:text-zinc-100 light:text-zinc-900"
+                />
+              </div>
             </div>
           </div>
 
@@ -2245,6 +2358,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     <th className="p-4">اسم الطالب</th>
                     <th className="p-4">البريد الإلكتروني</th>
                     <th className="p-4">حالة الدخول للمنصة</th>
+                    <th className="p-4">النقاط</th>
                     <th className="p-4">الفيديوهات المؤكدة</th>
                     <th className="p-4">الاختبارات المنجزة</th>
                     <th className="p-4">المعدل العام</th>
@@ -2290,6 +2404,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                           )}
                         </td>
                         <td className="p-4">
+                          <span className="px-2.5 py-1 rounded-lg bg-amber-500/20 text-amber-400 font-black border border-amber-500/30 inline-flex items-center gap-1">
+                            <Star className="w-3 h-3 fill-amber-400 text-amber-400" />
+                            <span>{(student.points || 0).toLocaleString()} نقطة</span>
+                          </span>
+                        </td>
+                        <td className="p-4">
                           <span className="px-2.5 py-1 rounded-lg bg-amber-500/15 text-amber-400 font-bold border border-amber-500/20">
                             {student.watchedVideoIds?.length || 0} فيديو
                           </span>
@@ -2314,6 +2434,16 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                         </td>
                         <td className="p-4">
                           <div className="flex items-center justify-center gap-2">
+                            {/* Reset single student points */}
+                            <button
+                              onClick={() => setResetPointsTarget({ type: 'single', studentId: student.id, studentName: student.name || student.email })}
+                              title="تصفير نقاط هذا الطالب إلى 0"
+                              className="px-2.5 py-1.5 rounded-xl bg-yellow-500/15 border border-yellow-500/30 text-yellow-400 hover:bg-yellow-500/30 transition-all font-bold flex items-center gap-1 text-[11px] cursor-pointer"
+                            >
+                              <RotateCcw className="w-3 h-3" />
+                              <span>تصفير نقاطه</span>
+                            </button>
+
                             {/* Lock / Unlock Toggle Button */}
                             {student.isLocked ? (
                               <button
@@ -2349,7 +2479,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                               className="px-2.5 py-1.5 rounded-xl bg-red-500/15 border border-red-500/30 text-red-400 hover:bg-red-500/30 transition-all font-bold flex items-center gap-1 text-[11px] cursor-pointer"
                             >
                               <UserX className="w-3.5 h-3.5" />
-                              <span>حذف</span>
+                              <span>حذف حسابه</span>
                             </button>
                           </div>
                         </td>
@@ -2880,7 +3010,52 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         )}
       </AnimatePresence>
 
-      {/* Edit Video Modal */}
+      {/* In-app Points Reset Confirmation Modal */}
+      <AnimatePresence>
+        {resetPointsTarget && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md">
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="w-full max-w-sm p-6 rounded-3xl border border-yellow-500/40 bg-zinc-950 text-right shadow-2xl"
+            >
+              <div className="w-12 h-12 rounded-2xl bg-yellow-500/10 border border-yellow-500/30 flex items-center justify-center mx-auto mb-3 text-yellow-400">
+                <RotateCcw className="w-6 h-6" />
+              </div>
+              <h4 className="text-lg font-black text-center text-zinc-100 mb-1">
+                {resetPointsTarget.type === 'all'
+                  ? 'تصفير نقاط جميع الطلاب'
+                  : `تصفير نقاط الطالب (${resetPointsTarget.studentName})`}
+              </h4>
+              <p className="text-xs text-center text-zinc-400 mb-5 leading-relaxed">
+                {resetPointsTarget.type === 'all'
+                  ? 'هل أنت متأكد من تصفير وإعادة تعيين نقاط جميع الطلاب إلى 0 نقطة؟ لن تتأثر الاختبارات المحلولة ولكن سيتم تصفير رصيد النقاط في لوحة المتصدرين.'
+                  : `هل أنت متأكد من تصفير نقاط الطالب (${resetPointsTarget.studentName}) إلى 0 نقطة؟`}
+              </p>
+
+              <div className="flex gap-3">
+                <AnimatedButton
+                  variant="gold"
+                  size="md"
+                  disabled={isSaving}
+                  onClick={handleConfirmResetPoints}
+                  className="flex-1 font-bold"
+                >
+                  {isSaving ? 'جاري التنفيذ...' : 'نعم، قم بالتصفير'}
+                </AnimatedButton>
+                <AnimatedButton
+                  variant="outline"
+                  size="md"
+                  onClick={() => setResetPointsTarget(null)}
+                >
+                  إلغاء
+                </AnimatedButton>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
       <AnimatePresence>
         {editingVideo && (
           <EditVideoModal

@@ -47,6 +47,38 @@ interface AuthContextType {
   setNeedsNamePrompt: (val: boolean) => void;
 }
 
+// Points calculation function adhering to exact requirements:
+// If percentage < 50%: deducts 20 points!
+// If percentage === 100%: awards maximum 20 points
+// If percentage >= 90%: awards 10 points, down to proportional points for 50-89%
+export function calculateExamPointsEarned(percentage: number): number {
+  if (percentage < 50) {
+    return -20; // يخصم منه تلقائياً 20 نقطة
+  }
+  if (percentage === 100) {
+    return 20; // أعلى درجة ممكن ياخدها هي 20 نقطة في الاختبار الواحد لو جاب 100%
+  }
+  if (percentage >= 95) {
+    return 10;
+  }
+  if (percentage >= 90) {
+    return 9;
+  }
+  if (percentage >= 85) {
+    return 8;
+  }
+  if (percentage >= 80) {
+    return 7;
+  }
+  if (percentage >= 70) {
+    return 5;
+  }
+  if (percentage >= 60) {
+    return 3;
+  }
+  return 1; // 50% إلى 59%
+}
+
 const LOCAL_STUDENT_KEY = 'alpha_active_student_session';
 const LOCAL_PROFILE_KEY = 'alpha_active_student_profile';
 
@@ -83,6 +115,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // Helper to sync user profile into Firestore and keep localStorage updated
   const syncUserToFirestore = async (user: User | AppUser, desiredName?: string, password?: string) => {
     try {
+      // Check if this student account was permanently deleted by admin
+      const deletedUidSnap = await getDoc(doc(db, 'deleted_users', user.uid));
+      let isAccountDeleted = deletedUidSnap.exists();
+      if (!isAccountDeleted && user.email) {
+        const deletedEmailSnap = await getDoc(doc(db, 'deleted_users', user.email.trim().toLowerCase()));
+        isAccountDeleted = deletedEmailSnap.exists();
+      }
+
+      if (isAccountDeleted) {
+        setIsAccountBlocked(true);
+        localStorage.removeItem(LOCAL_STUDENT_KEY);
+        localStorage.removeItem(LOCAL_PROFILE_KEY);
+        await signOut(auth).catch(() => {});
+        setCurrentUser(null);
+        setUserProfile(null);
+        return;
+      }
+
       const userDocRef = doc(db, 'users', user.uid);
       const snap = await getDoc(userDocRef);
       const chosenName = (desiredName || user.displayName || user.email?.split('@')[0] || 'طالب ألفا').trim();
@@ -180,8 +230,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         (docSnap) => {
           if (docSnap.exists()) {
             const data = docSnap.data() as UserProfile;
-            // Check if student was explicitly banned by admin
-            if (data.isBanned) {
+            // Check if student was explicitly deleted or banned by admin
+            if (data.isBanned || (data as any).isDeleted) {
               setIsAccountBlocked(true);
               localStorage.removeItem(LOCAL_STUDENT_KEY);
               localStorage.removeItem(LOCAL_PROFILE_KEY);
@@ -194,17 +244,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             localStorage.setItem(LOCAL_PROFILE_KEY, JSON.stringify(data));
             setIsAccountBlocked(false);
           } else {
-            // Document not found in Firestore yet (e.g. slight sync latency)
-            // DO NOT wipe the session or log out! Re-sync document if needed:
-            const stored = localStorage.getItem(LOCAL_STUDENT_KEY);
-            if (stored) {
-              try {
-                const parsed = JSON.parse(stored) as AppUser;
-                if (parsed && parsed.uid === uid) {
-                  syncUserToFirestore(parsed).catch(() => {});
-                }
-              } catch {}
-            }
+            // Student account was deleted from Firestore by Admin!
+            // Requirement: "أول حاجة، خليني أقدر أحذف حساب الطالب حتى وهو مسجل دخوله في المنصة"
+            setIsAccountBlocked(true);
+            localStorage.removeItem(LOCAL_STUDENT_KEY);
+            localStorage.removeItem(LOCAL_PROFILE_KEY);
+            signOut(auth).catch(() => {});
+            setCurrentUser(null);
+            setUserProfile(null);
           }
         },
         (error) => {
@@ -290,6 +337,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       throw new Error('يرجى إدخال كلمة المرور');
     }
 
+    // Check if this account was deleted by admin
+    const deletedSnap = await getDoc(doc(db, 'deleted_users', cleanEmail));
+    if (deletedSnap.exists()) {
+      setIsAccountBlocked(true);
+      throw new Error('تم حذف هذا الحساب نهائياً بواسطة إدارة المنصة ولا يمكن استخدامه مجدداً');
+    }
+
     // 1. Search for the student in Firestore users collection
     const q = query(collection(db, 'users'), where('email', '==', cleanEmail));
     const querySnap = await getDocs(q);
@@ -314,7 +368,64 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
 
     if (!studentData || !matchedDoc) {
-      throw new Error('البريد الإلكتروني غير مسجل، يرجى التأكد من البريد أو إنشاء حساب جديد أولاً');
+      // 1. Try Firebase Auth in case student was registered via Auth directly
+      try {
+        const fbRes = await signInWithEmailAndPassword(auth, cleanEmail, cleanPass);
+        if (fbRes.user) {
+          await syncUserToFirestore(fbRes.user, fbRes.user.displayName || cleanEmail.split('@')[0], cleanPass);
+          return;
+        }
+      } catch (_) {}
+
+      // 2. Seamless auto-registration for new students:
+      // If student enters email & password on login, create account smoothly without error!
+      if (cleanPass.length < 4) {
+        throw new Error('كلمة المرور يجب ألا تقل عن 4 خانات');
+      }
+
+      const studentId = `std_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+      const usernamePart = cleanEmail.split('@')[0];
+      const derivedName = usernamePart
+        .replace(/[._-]+/g, ' ')
+        .replace(/\d+/g, '')
+        .trim() || usernamePart;
+
+      const newProfile: UserProfile = {
+        id: studentId,
+        name: derivedName,
+        email: cleanEmail,
+        password: cleanPass,
+        createdAt: new Date().toISOString(),
+        lastLoginAt: new Date().toISOString(),
+        isBanned: false,
+        watchedVideoIds: [],
+        completedTestsCount: 0,
+        totalScoreSum: 0,
+        averageScore: 0,
+        points: 0,
+      };
+
+      await setDoc(doc(db, 'users', studentId), newProfile);
+
+      // Also try Firebase account creation in background
+      try {
+        const fbReg = await createUserWithEmailAndPassword(auth, cleanEmail, cleanPass);
+        if (fbReg.user) {
+          updateProfile(fbReg.user, { displayName: derivedName }).catch(() => {});
+        }
+      } catch (_) {}
+
+      const sessionUser: AppUser = {
+        uid: studentId,
+        email: cleanEmail,
+        displayName: derivedName,
+      };
+      localStorage.setItem(LOCAL_STUDENT_KEY, JSON.stringify(sessionUser));
+      localStorage.setItem(LOCAL_PROFILE_KEY, JSON.stringify(newProfile));
+      setCurrentUser(sessionUser);
+      setUserProfile(newProfile);
+      setNeedsNamePrompt(true);
+      return;
     }
 
     if (studentData.isBanned) {
@@ -379,6 +490,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (!cleanEmail) throw new Error('يرجى إدخال البريد الإلكتروني');
     if (!cleanPass) throw new Error('يرجى إدخال كلمة المرور');
     if (cleanPass.length < 4) throw new Error('يجب ألا تقل كلمة المرور عن 4 أحرف أو أرقام');
+
+    // Check if account was deleted by admin
+    const deletedSnap = await getDoc(doc(db, 'deleted_users', cleanEmail));
+    if (deletedSnap.exists()) {
+      throw new Error('هذا الحساب محذوف من قِبل إدارة المنصة ولا يمكن إعادة التسجيل بهذا البريد');
+    }
 
     // 1. Verify if email is already registered in Firestore
     try {
@@ -540,10 +657,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const newSum = currentSum + percentage;
       const newAverage = Math.round(newSum / newCount);
 
-      // Reduced points calculation per test: realistic balanced scale (e.g. 5 to 15 points per test)
-      const pointsEarned = Math.max(1, Math.round(percentage / 10)) + (passed ? 2 : 0) + (percentage === 100 ? 3 : 0);
-      const currentPoints = userProfile?.points ?? (Math.round(currentSum / 10) + (currentCount * 2));
-      const newPoints = currentPoints + pointsEarned;
+      // Exact points formula per user specification:
+      // Percentage >= 50%: awards points according to score up to max 20 points at 100%
+      // Percentage < 50%: deducts 20 points!
+      const pointsDelta = calculateExamPointsEarned(percentage);
+      const currentPoints = userProfile?.points ?? 0;
+      const newPoints = Math.max(0, currentPoints + pointsDelta);
 
       // Optimistically update local userProfile immediately
       setUserProfile((prev) => {

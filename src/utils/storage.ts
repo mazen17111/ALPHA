@@ -111,6 +111,11 @@ export async function resolveFastMediaUrl(videoIdOrUrl: string, videoId?: string
     return blobUrlCache.get(videoId)!;
   }
 
+  // Server media route or external URL: returns immediately for instant streaming
+  if (videoIdOrUrl.startsWith('/api/media/') || videoIdOrUrl.startsWith('http')) {
+    return videoIdOrUrl;
+  }
+
   if (videoIdOrUrl === 'indexeddb' && videoId) {
     const rawData = await getMediaItem(videoId);
     if (!rawData) return '';
@@ -122,6 +127,27 @@ export async function resolveFastMediaUrl(videoIdOrUrl: string, videoId?: string
   }
 
   return videoIdOrUrl;
+}
+
+// Upload a file or video directly to the platform server for fast multi-device streaming
+export async function uploadMediaToServer(filename: string, fileData: string): Promise<string> {
+  try {
+    const res = await fetch('/api/upload', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ filename, fileData }),
+    });
+
+    if (res.ok) {
+      const data = await res.json();
+      if (data && data.url) {
+        return data.url;
+      }
+    }
+  } catch (err) {
+    console.warn('Server upload fallback:', err);
+  }
+  return '';
 }
 
 // Universal ultra-fast resilient opener for heavy/light files & media
@@ -140,20 +166,22 @@ export async function openOrDownloadFile(file: { id?: string; fileUrl: string; t
     }
 
     if (resolvedUrl) {
-      const win = window.open(resolvedUrl, '_blank');
-      if (!win) {
-        // Fallback if popup blocked: create download link
-        const a = document.createElement('a');
-        a.href = resolvedUrl;
-        a.download = file.title || 'document';
-        a.target = '_blank';
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-      }
+      const a = document.createElement('a');
+      a.href = resolvedUrl;
+      a.target = '_blank';
+      a.rel = 'noopener noreferrer';
+      const cleanTitle = (file.title || 'document').replace(/[/\\?%*:|"<>]/g, '_');
+      a.download = cleanTitle;
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(() => {
+        if (document.body.contains(a)) {
+          document.body.removeChild(a);
+        }
+      }, 200);
     }
   } catch (err) {
-    console.error('Failed to open file safely:', err);
-    window.open(file.fileUrl, '_blank', 'noopener,noreferrer');
+    console.warn('Failed to open file safely:', err);
+    window.open(file.fileUrl, '_blank');
   }
 }
